@@ -21,7 +21,8 @@ class BoxPage extends StatefulWidget {
   State<BoxPage> createState() => _BoxPageState();
 }
 
-class _BoxPageState extends State<BoxPage> with WindowListener {
+class _BoxPageState extends State<BoxPage>
+    with WindowListener, TickerProviderStateMixin {
   bool _hovering = false;
   bool _loading = true;
   String? _error;
@@ -40,6 +41,9 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
   // Display mode
   BoxDisplayMode _displayMode = BoxDisplayMode.grid;
   bool _isPinned = false;
+  bool _isCollapsed = false;
+  bool _showContent = true; // Controls visibility of the content below header
+  Size? _expandedSize; // Store size before collapsing
 
   @override
   void initState() {
@@ -64,12 +68,35 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
     // Load display mode
     final mode = await BoxPrefs().loadDisplayMode(widget.type.name);
     final pinned = await BoxPrefs().loadPinned(widget.type.name);
+    final collapsed = await BoxPrefs().loadCollapsed(widget.type.name);
 
     setState(() {
       _desktopPath = desktopPath;
       _displayMode = mode;
       _isPinned = pinned;
+      _isCollapsed = collapsed;
+      _showContent = !collapsed;
     });
+
+    // Get current window size and manage collapse state
+    final currentSize = await windowManager.getSize();
+
+    if (collapsed) {
+      // If starting collapsed, save current size as expanded size (or use default)
+      _expandedSize = currentSize.height > 100
+          ? currentSize
+          : const Size(500, 300);
+      // Then shrink window
+      await windowManager.setSize(Size(currentSize.width, 50));
+    } else {
+      // If starting expanded, save current size
+      _expandedSize = currentSize;
+      // Ensure window is tall enough for content
+      if (currentSize.height < 100) {
+        _expandedSize = const Size(500, 300);
+        await windowManager.setSize(_expandedSize!);
+      }
+    }
 
     await _refresh();
   }
@@ -270,6 +297,45 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
     await BoxPrefs().savePinned(widget.type.name, newPinned);
   }
 
+  Future<void> _toggleCollapsed() async {
+    final newCollapsed = !_isCollapsed;
+
+    if (newCollapsed) {
+      // Collapsing
+      final currentSize = await windowManager.getSize();
+      _expandedSize = currentSize; // Save current size
+
+      // 1. Update state to hide content
+      setState(() {
+        _isCollapsed = true;
+        _showContent = false;
+      });
+
+      // 2. Wait for animation/render to finish (brief delay)
+      await Future.delayed(const Duration(milliseconds: 200));
+
+      // 3. Shrink window
+      await windowManager.setSize(Size(currentSize.width, 50));
+    } else {
+      // Expanding
+      // 1. Restore size
+      if (_expandedSize != null) {
+        await windowManager.setSize(_expandedSize!);
+      }
+
+      // 2. Wait for resize to apply
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      // 3. Update state to show content
+      setState(() {
+        _isCollapsed = false;
+        _showContent = true;
+      });
+    }
+
+    await BoxPrefs().saveCollapsed(widget.type.name, newCollapsed);
+  }
+
   Future<void> _showMenu() async {
     final overlay =
         Overlay.of(context).context.findRenderObject() as RenderBox?;
@@ -332,8 +398,30 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
       backgroundColor: Colors.transparent,
       body: SafeArea(
         child: MouseRegion(
-          onEnter: (_) => setState(() => _hovering = true),
-          onExit: (_) => setState(() => _hovering = false),
+          onEnter: (_) async {
+            // Auto-expand FIRST if collapsed
+            if (_isCollapsed) {
+              // Use saved size or default
+              final targetSize = _expandedSize ?? const Size(500, 300);
+              await windowManager.setSize(targetSize);
+              await Future.delayed(const Duration(milliseconds: 50));
+              if (mounted) setState(() => _showContent = true);
+            }
+            if (mounted) setState(() => _hovering = true);
+          },
+          onExit: (_) async {
+            if (mounted) setState(() => _hovering = false);
+
+            // Auto-collapse when leaving if in collapsed mode
+            if (_isCollapsed) {
+              if (mounted) setState(() => _showContent = false);
+              await Future.delayed(const Duration(milliseconds: 200));
+              if (mounted) {
+                final currentSize = await windowManager.getSize();
+                await windowManager.setSize(Size(currentSize.width, 50));
+              }
+            }
+          },
           child: Stack(
             clipBehavior: Clip.none, // Allow lines to extend out
             children: [
@@ -347,47 +435,67 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
                         title: title,
                         hovering: _hovering,
                         isPinned: _isPinned,
+                        isCollapsed: _isCollapsed,
                         displayMode: _displayMode,
                         onToggleDisplayMode: _toggleDisplayMode,
+                        onToggleCollapsed: _toggleCollapsed,
                         onMenu: _showMenu,
                         onRefresh: _refresh,
                         onClose: () => windowManager.close(),
                         onDragStart:
                             _loadOtherBounds, // Refresh bounds on drag start
                       ),
-                      const Divider(height: 1),
-                      Expanded(
-                        child: _loading
-                            ? const Center(child: CircularProgressIndicator())
-                            : _error != null
-                            ? Center(
-                                child: Text(
-                                  '加载失败：$_error',
-                                  style: theme.textTheme.bodyMedium,
+
+                      if (!_isCollapsed || _showContent)
+                        Expanded(
+                          child: AnimatedOpacity(
+                            duration: const Duration(milliseconds: 200),
+                            opacity: _showContent ? 1.0 : 0.0,
+                            curve: Curves.easeInOut,
+                            child: Column(
+                              children: [
+                                const Divider(height: 1),
+                                Expanded(
+                                  child: _loading
+                                      ? const Center(
+                                          child: CircularProgressIndicator(),
+                                        )
+                                      : _error != null
+                                      ? Center(
+                                          child: Text(
+                                            '加载失败：$_error',
+                                            style: theme.textTheme.bodyMedium,
+                                          ),
+                                        )
+                                      : _entries.isEmpty
+                                      ? Center(
+                                          child: Text(
+                                            '暂无内容',
+                                            style: theme.textTheme.bodyMedium
+                                                ?.copyWith(
+                                                  color: theme
+                                                      .colorScheme
+                                                      .onSurface
+                                                      .withValues(alpha: 0.7),
+                                                ),
+                                          ),
+                                        )
+                                      : _displayMode == BoxDisplayMode.grid
+                                      ? _BoxGrid(
+                                          entries: _entries,
+                                          type: widget.type,
+                                          onOpen: _openEntity,
+                                        )
+                                      : _BoxList(
+                                          entries: _entries,
+                                          type: widget.type,
+                                          onOpen: _openEntity,
+                                        ),
                                 ),
-                              )
-                            : _entries.isEmpty
-                            ? Center(
-                                child: Text(
-                                  '暂无内容',
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: theme.colorScheme.onSurface
-                                        .withValues(alpha: 0.7),
-                                  ),
-                                ),
-                              )
-                            : _displayMode == BoxDisplayMode.grid
-                            ? _BoxGrid(
-                                entries: _entries,
-                                type: widget.type,
-                                onOpen: _openEntity,
-                              )
-                            : _BoxList(
-                                entries: _entries,
-                                type: widget.type,
-                                onOpen: _openEntity,
-                              ),
-                      ),
+                              ],
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -446,8 +554,10 @@ class _BoxHeader extends StatelessWidget {
   final String title;
   final bool hovering;
   final bool isPinned;
+  final bool isCollapsed;
   final BoxDisplayMode displayMode;
   final VoidCallback onToggleDisplayMode;
+  final VoidCallback onToggleCollapsed;
   final VoidCallback onMenu;
   final VoidCallback onRefresh;
   final VoidCallback onClose;
@@ -457,8 +567,10 @@ class _BoxHeader extends StatelessWidget {
     required this.title,
     required this.hovering,
     required this.isPinned,
+    required this.isCollapsed,
     required this.displayMode,
     required this.onToggleDisplayMode,
+    required this.onToggleCollapsed,
     required this.onMenu,
     required this.onRefresh,
     required this.onClose,
@@ -502,6 +614,13 @@ class _BoxHeader extends StatelessWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  IconButton(
+                    tooltip: isCollapsed ? '展开盒子' : '收起盒子',
+                    onPressed: onToggleCollapsed,
+                    icon: Icon(
+                      isCollapsed ? Icons.expand_less : Icons.expand_more,
+                    ),
+                  ),
                   IconButton(
                     tooltip: displayMode == BoxDisplayMode.grid
                         ? '列表视图'

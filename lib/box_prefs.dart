@@ -63,4 +63,14 @@ class BoxPrefs {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('$_displayModePrefix$boxType.pinned', pinned);
   }
+
+  Future<bool> loadCollapsed(String boxType) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('$_displayModePrefix$boxType.collapsed') ?? false;
+  }
+
+  Future<void> saveCollapsed(String boxType, bool collapsed) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('$_displayModePrefix$boxType.collapsed', collapsed);
+  }
 }
