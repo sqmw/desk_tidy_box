@@ -90,7 +90,7 @@ Future<void> main(List<String> args) async {
       titleBarStyle: TitleBarStyle.hidden,
       windowButtonVisibility: false,
       backgroundColor: Colors.transparent,
-      skipTaskbar: false,
+      skipTaskbar: true,
       size: bounds != null
           ? Size(bounds.width.toDouble(), bounds.height.toDouble())
           : const Size(320, 280),

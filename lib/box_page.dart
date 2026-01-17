@@ -338,7 +338,7 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
       });
 
       // Visual shrink animation (handled by AnimatedContainer in build)
-      await Future.delayed(const Duration(milliseconds: 250));
+      await Future.delayed(const Duration(milliseconds: 150));
 
       // Physically shrink window only AFTER visual animation
       if (mounted && _isCollapsed && !_hovering) {
@@ -455,15 +455,15 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
           // Auto-collapse when leaving if in collapsed mode
           if (_isCollapsed) {
             // Grace period
-            await Future.delayed(const Duration(milliseconds: 400));
+            await Future.delayed(const Duration(milliseconds: 200));
 
             // Don't collapse if mouse returned OR menu is open OR we are dragging
             if (_hovering || _isMenuOpen || _isDragging) return;
 
             if (mounted) setState(() => _showContent = false);
 
-            // Give visual hide and container shrink animation time (250ms)
-            await Future.delayed(const Duration(milliseconds: 250));
+            // Give visual hide and container shrink animation time (150ms)
+            await Future.delayed(const Duration(milliseconds: 150));
 
             // Re-check before physical resize
             if (_hovering || _isMenuOpen || _isDragging) return;
@@ -481,7 +481,7 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
               children: [
                 RepaintBoundary(
                   child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 250),
+                    duration: const Duration(milliseconds: 150),
                     curve: Curves.fastOutSlowIn,
                     // Use expanded height or default when showContent is true
                     height: _showContent ? null : 50.0,
