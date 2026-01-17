@@ -39,6 +39,18 @@ class BoxPrefs {
     await prefs.setInt('$_prefix$key.h', bounds.height);
   }
 
+  /// Mark a box as running or stopped
+  Future<void> saveRunning(String key, bool running) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('$_prefix$key.running', running);
+  }
+
+  /// Check if a box is currently running
+  Future<bool> loadRunning(String key) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('$_prefix$key.running') ?? false;
+  }
+
   Future<BoxDisplayMode> loadDisplayMode(String boxType) async {
     final prefs = await SharedPreferences.getInstance();
     final index = prefs.getInt('$_displayModePrefix$boxType.displayMode');

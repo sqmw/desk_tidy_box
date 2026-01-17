@@ -49,12 +49,16 @@ class _BoxPageState extends State<BoxPage>
   void initState() {
     super.initState();
     windowManager.addListener(this);
+    // Mark this box as running
+    BoxPrefs().saveRunning(widget.type.name, true);
     _init();
     _loadOtherBounds();
   }
 
   @override
   void dispose() {
+    // Mark this box as not running
+    BoxPrefs().saveRunning(widget.type.name, false);
     windowManager.removeListener(this);
     super.dispose();
   }
@@ -110,6 +114,16 @@ class _BoxPageState extends State<BoxPage>
     final otherType = widget.type == BoxType.folders
         ? BoxType.files
         : BoxType.folders;
+
+    // Only load bounds if the other box is actually running
+    final isOtherRunning = await BoxPrefs().loadRunning(otherType.name);
+    if (!isOtherRunning) {
+      if (mounted) {
+        setState(() => _otherBounds = null);
+      }
+      return;
+    }
+
     final bounds = await BoxPrefs().loadBounds(otherType.name);
     if (mounted) {
       setState(() => _otherBounds = bounds);
