@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:path/path.dart' as path;
 import 'package:window_manager/window_manager.dart';
 
@@ -432,16 +433,16 @@ class _BoxPageState extends State<BoxPage>
 
           // Auto-collapse when leaving if in collapsed mode
           if (_isCollapsed) {
-            // Delay before hiding content to feel natural
-            await Future.delayed(const Duration(milliseconds: 100));
+            // Increased grace period to 400ms as requested
+            await Future.delayed(const Duration(milliseconds: 400));
 
             // If we moved back in during the delay, don't collapse
             if (_hovering) return;
 
             if (mounted) setState(() => _showContent = false);
 
-            // Delay before shrinking window to let content fade/reveal out
-            await Future.delayed(const Duration(milliseconds: 150));
+            // Delay should match or exceed the animation duration (400ms)
+            await Future.delayed(const Duration(milliseconds: 400));
 
             // Check again to avoid race condition
             if (_hovering) return;
@@ -477,63 +478,84 @@ class _BoxPageState extends State<BoxPage>
                           onDragStart:
                               _loadOtherBounds, // Refresh bounds on drag start
                         ),
-                        // Only show content when _showContent is true
-                        if (_showContent)
+                        // We keep the widget in the tree to allow AnimatedAlign to work.
+                        // It only shows if _isCollapsed is false OR _showContent is true.
+                        if (!_isCollapsed || _showContent || _hovering)
                           Expanded(
                             child: ClipRect(
                               child: AnimatedAlign(
-                                duration: const Duration(milliseconds: 200),
-                                curve: Curves.easeInOut,
+                                duration: const Duration(milliseconds: 400),
+                                curve: Curves.easeInOutCubic,
                                 alignment: Alignment.topCenter,
-                                heightFactor: 1.0,
-                                child: Column(
-                                  children: [
-                                    const Divider(height: 1),
-                                    Expanded(
-                                      child: _loading
-                                          ? const Center(
-                                              child:
-                                                  CircularProgressIndicator(),
-                                            )
-                                          : _error != null
-                                          ? Center(
-                                              child: Text(
-                                                '加载失败：$_error',
-                                                style:
-                                                    theme.textTheme.bodyMedium,
-                                              ),
-                                            )
-                                          : _entries.isEmpty
-                                          ? Center(
-                                              child: Text(
-                                                '暂无内容',
-                                                style: theme
-                                                    .textTheme
-                                                    .bodyMedium
-                                                    ?.copyWith(
-                                                      color: theme
-                                                          .colorScheme
-                                                          .onSurface
-                                                          .withValues(
-                                                            alpha: 0.7,
-                                                          ),
+                                heightFactor: _showContent ? 1.0 : 0.0,
+                                child:
+                                    Column(
+                                          children: [
+                                            const Divider(height: 1),
+                                            Expanded(
+                                              child: _loading
+                                                  ? const Center(
+                                                      child:
+                                                          CircularProgressIndicator(),
+                                                    )
+                                                  : _error != null
+                                                  ? Center(
+                                                      child: Text(
+                                                        '加载失败：$_error',
+                                                        style: theme
+                                                            .textTheme
+                                                            .bodyMedium,
+                                                      ),
+                                                    )
+                                                  : _entries.isEmpty
+                                                  ? Center(
+                                                      child: Text(
+                                                        '暂无内容',
+                                                        style: theme
+                                                            .textTheme
+                                                            .bodyMedium
+                                                            ?.copyWith(
+                                                              color: theme
+                                                                  .colorScheme
+                                                                  .onSurface
+                                                                  .withValues(
+                                                                    alpha: 0.7,
+                                                                  ),
+                                                            ),
+                                                      ),
+                                                    )
+                                                  : _displayMode ==
+                                                        BoxDisplayMode.grid
+                                                  ? _BoxGrid(
+                                                      entries: _entries,
+                                                      type: widget.type,
+                                                      onOpen: _openEntity,
+                                                    )
+                                                  : _BoxList(
+                                                      entries: _entries,
+                                                      type: widget.type,
+                                                      onOpen: _openEntity,
                                                     ),
-                                              ),
-                                            )
-                                          : _displayMode == BoxDisplayMode.grid
-                                          ? _BoxGrid(
-                                              entries: _entries,
-                                              type: widget.type,
-                                              onOpen: _openEntity,
-                                            )
-                                          : _BoxList(
-                                              entries: _entries,
-                                              type: widget.type,
-                                              onOpen: _openEntity,
                                             ),
-                                    ),
-                                  ],
-                                ),
+                                          ],
+                                        )
+                                        .animate(target: _showContent ? 1 : 0)
+                                        .fadeIn(
+                                          duration: 300.ms,
+                                          curve: Curves.easeIn,
+                                        )
+                                        .slideY(
+                                          begin: -0.05,
+                                          end: 0,
+                                          duration: 400.ms,
+                                          curve: Curves.easeOutCubic,
+                                        )
+                                        .scaleXY(
+                                          begin: 0.98,
+                                          end: 1.0,
+                                          duration: 400.ms,
+                                          curve: Curves.easeOutCubic,
+                                        ),
                               ),
                             ),
                           ),
