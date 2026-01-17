@@ -242,19 +242,19 @@ class _BoxHeader extends StatelessWidget {
     final theme = Theme.of(context);
     return SizedBox(
       height: 44,
-      child: Row(
-        children: [
-          const SizedBox(width: 10),
-          Icon(
-            title == '文件夹' ? Icons.folder : Icons.description,
-            size: 18,
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.85),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onPanStart: (_) => windowManager.startDragging(),
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onPanStart: (_) => windowManager.startDragging(),
+        child: Row(
+          children: [
+            const SizedBox(width: 10),
+            Icon(
+              title == '文件夹' ? Icons.folder : Icons.description,
+              size: 18,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.85),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
               child: Text(
                 title,
                 style: theme.textTheme.titleSmall?.copyWith(
@@ -263,33 +263,33 @@ class _BoxHeader extends StatelessWidget {
                 ),
               ),
             ),
-          ),
-          AnimatedOpacity(
-            duration: const Duration(milliseconds: 140),
-            opacity: hovering ? 1 : 0,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  tooltip: '刷新',
-                  onPressed: onRefresh,
-                  icon: const Icon(Icons.refresh),
-                ),
-                IconButton(
-                  tooltip: '菜单',
-                  onPressed: onMenu,
-                  icon: const Icon(Icons.menu),
-                ),
-                IconButton(
-                  tooltip: '关闭',
-                  onPressed: onClose,
-                  icon: const Icon(Icons.close),
-                ),
-              ],
+            AnimatedOpacity(
+              duration: const Duration(milliseconds: 140),
+              opacity: hovering ? 1 : 0,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    tooltip: '刷新',
+                    onPressed: onRefresh,
+                    icon: const Icon(Icons.refresh),
+                  ),
+                  IconButton(
+                    tooltip: '菜单',
+                    onPressed: onMenu,
+                    icon: const Icon(Icons.menu),
+                  ),
+                  IconButton(
+                    tooltip: '关闭',
+                    onPressed: onClose,
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(width: 6),
-        ],
+            const SizedBox(width: 6),
+          ],
+        ),
       ),
     );
   }

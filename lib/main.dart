@@ -130,17 +130,22 @@ class _BoxAppState extends State<BoxApp> with WindowListener {
     }
   }
 
+  Timer? _saveTimer;
+
   Future<void> _saveBounds() async {
-    final rect = await windowManager.getBounds();
-    await _prefs.saveBounds(
-      widget.args.type.name,
-      BoxBounds(
-        x: rect.left.round(),
-        y: rect.top.round(),
-        width: rect.width.round(),
-        height: rect.height.round(),
-      ),
-    );
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 500), () async {
+      final rect = await windowManager.getBounds();
+      await _prefs.saveBounds(
+        widget.args.type.name,
+        BoxBounds(
+          x: rect.left.round(),
+          y: rect.top.round(),
+          width: rect.width.round(),
+          height: rect.height.round(),
+        ),
+      );
+    });
   }
 
   @override
