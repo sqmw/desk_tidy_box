@@ -415,23 +415,39 @@ class _BoxPageState extends State<BoxPage>
         child: SafeArea(
           child: MouseRegion(
             onEnter: (_) async {
+              if (mounted) setState(() => _hovering = true);
               // Auto-expand FIRST if collapsed
               if (_isCollapsed) {
                 // Use saved size or default
                 final targetSize = _expandedSize ?? const Size(500, 300);
                 await windowManager.setSize(targetSize);
+                // Tiny delay to ensure window has resized before showing content
                 await Future.delayed(const Duration(milliseconds: 50));
-                if (mounted) setState(() => _showContent = true);
+                // Only show content if we are still hovering
+                if (mounted && _hovering) {
+                  setState(() => _showContent = true);
+                }
               }
-              if (mounted) setState(() => _hovering = true);
             },
             onExit: (_) async {
               if (mounted) setState(() => _hovering = false);
 
               // Auto-collapse when leaving if in collapsed mode
               if (_isCollapsed) {
+                // Delay before hiding content to feel natural
+                await Future.delayed(const Duration(milliseconds: 100));
+
+                // If we moved back in during the delay, don't collapse
+                if (_hovering) return;
+
                 if (mounted) setState(() => _showContent = false);
-                await Future.delayed(const Duration(milliseconds: 200));
+
+                // Delay before shrinking window to let content fade/reveal out
+                await Future.delayed(const Duration(milliseconds: 150));
+
+                // Check again to avoid race condition
+                if (_hovering) return;
+
                 if (mounted) {
                   final currentSize = await windowManager.getSize();
                   await windowManager.setSize(Size(currentSize.width, 50));
@@ -461,54 +477,63 @@ class _BoxPageState extends State<BoxPage>
                           onDragStart:
                               _loadOtherBounds, // Refresh bounds on drag start
                         ),
-
-                        if (!_isCollapsed || _showContent)
+                        // Only show content when _showContent is true
+                        if (_showContent)
                           Expanded(
-                            child: AnimatedOpacity(
-                              duration: const Duration(milliseconds: 200),
-                              opacity: _showContent ? 1.0 : 0.0,
-                              curve: Curves.easeInOut,
-                              child: Column(
-                                children: [
-                                  const Divider(height: 1),
-                                  Expanded(
-                                    child: _loading
-                                        ? const Center(
-                                            child: CircularProgressIndicator(),
-                                          )
-                                        : _error != null
-                                        ? Center(
-                                            child: Text(
-                                              '加载失败：$_error',
-                                              style: theme.textTheme.bodyMedium,
+                            child: ClipRect(
+                              child: AnimatedAlign(
+                                duration: const Duration(milliseconds: 200),
+                                curve: Curves.easeInOut,
+                                alignment: Alignment.topCenter,
+                                heightFactor: 1.0,
+                                child: Column(
+                                  children: [
+                                    const Divider(height: 1),
+                                    Expanded(
+                                      child: _loading
+                                          ? const Center(
+                                              child:
+                                                  CircularProgressIndicator(),
+                                            )
+                                          : _error != null
+                                          ? Center(
+                                              child: Text(
+                                                '加载失败：$_error',
+                                                style:
+                                                    theme.textTheme.bodyMedium,
+                                              ),
+                                            )
+                                          : _entries.isEmpty
+                                          ? Center(
+                                              child: Text(
+                                                '暂无内容',
+                                                style: theme
+                                                    .textTheme
+                                                    .bodyMedium
+                                                    ?.copyWith(
+                                                      color: theme
+                                                          .colorScheme
+                                                          .onSurface
+                                                          .withValues(
+                                                            alpha: 0.7,
+                                                          ),
+                                                    ),
+                                              ),
+                                            )
+                                          : _displayMode == BoxDisplayMode.grid
+                                          ? _BoxGrid(
+                                              entries: _entries,
+                                              type: widget.type,
+                                              onOpen: _openEntity,
+                                            )
+                                          : _BoxList(
+                                              entries: _entries,
+                                              type: widget.type,
+                                              onOpen: _openEntity,
                                             ),
-                                          )
-                                        : _entries.isEmpty
-                                        ? Center(
-                                            child: Text(
-                                              '暂无内容',
-                                              style: theme.textTheme.bodyMedium
-                                                  ?.copyWith(
-                                                    color: theme
-                                                        .colorScheme
-                                                        .onSurface
-                                                        .withValues(alpha: 0.7),
-                                                  ),
-                                            ),
-                                          )
-                                        : _displayMode == BoxDisplayMode.grid
-                                        ? _BoxGrid(
-                                            entries: _entries,
-                                            type: widget.type,
-                                            onOpen: _openEntity,
-                                          )
-                                        : _BoxList(
-                                            entries: _entries,
-                                            type: widget.type,
-                                            onOpen: _openEntity,
-                                          ),
-                                  ),
-                                ],
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           ),
