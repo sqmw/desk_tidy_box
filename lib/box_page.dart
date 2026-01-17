@@ -23,8 +23,7 @@ class BoxPage extends StatefulWidget {
   State<BoxPage> createState() => _BoxPageState();
 }
 
-class _BoxPageState extends State<BoxPage>
-    with WindowListener, TickerProviderStateMixin {
+class _BoxPageState extends State<BoxPage> with WindowListener {
   bool _hovering = false;
   bool _loading = true;
   String? _error;
@@ -46,6 +45,10 @@ class _BoxPageState extends State<BoxPage>
   bool _isCollapsed = false;
   bool _showContent = true; // Controls visibility of the content below header
   Size? _expandedSize; // Store size before collapsing
+
+  // Interaction state guards
+  bool _isMenuOpen = false;
+  bool _isDragging = false;
 
   @override
   void initState() {
@@ -235,6 +238,14 @@ class _BoxPageState extends State<BoxPage>
     return locations;
   }
 
+  @override
+  void onWindowMoved() {
+    _loadOtherBounds();
+    if (_isDragging) {
+      if (mounted) setState(() => _isDragging = false);
+    }
+  }
+
   Future<void> _refresh() async {
     setState(() {
       _loading = true;
@@ -319,88 +330,98 @@ class _BoxPageState extends State<BoxPage>
     if (newCollapsed) {
       // Collapsing
       final currentSize = await windowManager.getSize();
-      _expandedSize = currentSize; // Save current size
+      _expandedSize = currentSize;
 
-      // 1. Update state to hide content
       setState(() {
         _isCollapsed = true;
         _showContent = false;
       });
 
-      // 2. Wait for animation/render to finish (brief delay)
-      await Future.delayed(const Duration(milliseconds: 200));
+      // Visual shrink animation (handled by AnimatedContainer in build)
+      await Future.delayed(const Duration(milliseconds: 250));
 
-      // 3. Shrink window
-      await windowManager.setSize(Size(currentSize.width, 50));
+      // Physically shrink window only AFTER visual animation
+      if (mounted && _isCollapsed && !_hovering) {
+        await windowManager.setSize(Size(currentSize.width, 50));
+      }
     } else {
       // Expanding
-      // 1. Restore size
-      if (_expandedSize != null) {
-        await windowManager.setSize(_expandedSize!);
-      }
+      final targetH = _expandedSize?.height ?? 300;
+      final curSize = await windowManager.getSize();
 
-      // 2. Wait for resize to apply
-      await Future.delayed(const Duration(milliseconds: 50));
+      // 1. Physically expand window INSTANTLY (User said this was good)
+      await windowManager.setSize(Size(curSize.width, targetH));
 
-      // 3. Update state to show content
       setState(() {
         _isCollapsed = false;
-        _showContent = true;
       });
+
+      // 2. Wait for layout, then show content
+      await Future.delayed(const Duration(milliseconds: 50));
+      if (mounted) {
+        setState(() => _showContent = true);
+      }
     }
 
     await BoxPrefs().saveCollapsed(widget.type.name, newCollapsed);
   }
 
   Future<void> _showMenu() async {
-    final overlay =
-        Overlay.of(context).context.findRenderObject() as RenderBox?;
-    final origin = overlay?.localToGlobal(Offset.zero) ?? Offset.zero;
-    final result = await showMenu<String>(
-      context: context,
-      position: RelativeRect.fromLTRB(origin.dx + 12, origin.dy + 44, 0, 0),
-      items: [
-        PopupMenuItem(
-          value: 'refresh',
-          child: ListTile(leading: Icon(Icons.refresh), title: Text('刷新')),
-        ),
-        PopupMenuItem(
-          value: 'open_desktop',
-          child: ListTile(
-            leading: Icon(Icons.folder_open),
-            title: Text('打开桌面文件夹'),
+    setState(() => _isMenuOpen = true);
+    try {
+      final overlay =
+          Overlay.of(context).context.findRenderObject() as RenderBox?;
+      final origin = overlay?.localToGlobal(Offset.zero) ?? Offset.zero;
+      final result = await showMenu<String>(
+        context: context,
+        position: RelativeRect.fromLTRB(origin.dx + 12, origin.dy + 44, 0, 0),
+        items: [
+          PopupMenuItem(
+            value: 'refresh',
+            child: ListTile(leading: Icon(Icons.refresh), title: Text('刷新')),
           ),
-        ),
-        PopupMenuItem(
-          value: 'toggle_pin',
-          child: ListTile(
-            leading: Icon(_isPinned ? Icons.push_pin : Icons.push_pin_outlined),
-            title: Text(_isPinned ? '取消固定' : '固定盒子'),
+          PopupMenuItem(
+            value: 'open_desktop',
+            child: ListTile(
+              leading: Icon(Icons.folder_open),
+              title: Text('打开桌面文件夹'),
+            ),
           ),
-        ),
-        PopupMenuDivider(),
-        PopupMenuItem(
-          value: 'close',
-          child: ListTile(leading: Icon(Icons.close), title: Text('关闭盒子')),
-        ),
-      ],
-    );
+          PopupMenuItem(
+            value: 'toggle_pin',
+            child: ListTile(
+              leading: Icon(
+                _isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+              ),
+              title: Text(_isPinned ? '取消固定' : '固定盒子'),
+            ),
+          ),
+          PopupMenuDivider(),
+          PopupMenuItem(
+            value: 'close',
+            child: ListTile(leading: Icon(Icons.close), title: Text('关闭盒子')),
+          ),
+        ],
+      );
 
-    switch (result) {
-      case 'refresh':
-        await _refresh();
-        break;
-      case 'open_desktop':
-        if (_desktopPath.isNotEmpty) {
-          await Process.run('explorer.exe', [_desktopPath]);
-        }
-        break;
-      case 'toggle_pin':
-        await _togglePinned();
-        break;
-      case 'close':
-        await windowManager.close();
-        break;
+      switch (result) {
+        case 'refresh':
+          await _refresh();
+          break;
+        case 'open_desktop':
+          if (_desktopPath.isNotEmpty) {
+            await Process.run('explorer.exe', [_desktopPath]);
+          }
+          break;
+        case 'toggle_pin':
+          await _togglePinned();
+          break;
+        case 'close':
+          await windowManager.close();
+          break;
+      }
+    } finally {
+      if (mounted) setState(() => _isMenuOpen = false);
     }
   }
 
@@ -417,12 +438,12 @@ class _BoxPageState extends State<BoxPage>
           if (mounted) setState(() => _hovering = true);
           // Auto-expand FIRST if collapsed
           if (_isCollapsed) {
-            // Use saved size or default
-            final targetSize = _expandedSize ?? const Size(500, 300);
-            await windowManager.setSize(targetSize);
-            // Tiny delay to ensure window has resized before showing content
+            final targetHeight = _expandedSize?.height ?? 300;
+            final curSize = await windowManager.getSize();
+            // Instant resize expansion as it was "good"
+            await windowManager.setSize(Size(curSize.width, targetHeight));
+
             await Future.delayed(const Duration(milliseconds: 50));
-            // Only show content if we are still hovering
             if (mounted && _hovering) {
               setState(() => _showContent = true);
             }
@@ -433,23 +454,23 @@ class _BoxPageState extends State<BoxPage>
 
           // Auto-collapse when leaving if in collapsed mode
           if (_isCollapsed) {
-            // Increased grace period to 400ms as requested
+            // Grace period
             await Future.delayed(const Duration(milliseconds: 400));
 
-            // If we moved back in during the delay, don't collapse
-            if (_hovering) return;
+            // Don't collapse if mouse returned OR menu is open OR we are dragging
+            if (_hovering || _isMenuOpen || _isDragging) return;
 
             if (mounted) setState(() => _showContent = false);
 
-            // Delay should match or exceed the animation duration (400ms)
-            await Future.delayed(const Duration(milliseconds: 400));
+            // Give visual hide and container shrink animation time (250ms)
+            await Future.delayed(const Duration(milliseconds: 250));
 
-            // Check again to avoid race condition
-            if (_hovering) return;
+            // Re-check before physical resize
+            if (_hovering || _isMenuOpen || _isDragging) return;
 
             if (mounted) {
-              final currentSize = await windowManager.getSize();
-              await windowManager.setSize(Size(currentSize.width, 50));
+              final curSize = await windowManager.getSize();
+              await windowManager.setSize(Size(curSize.width, 50));
             }
           }
         },
@@ -459,107 +480,140 @@ class _BoxPageState extends State<BoxPage>
               clipBehavior: Clip.none, // Allow lines to extend out
               children: [
                 RepaintBoundary(
-                  child: GlassContainer(
-                    opacity: prefs.transparency,
-                    blurSigma: 18 * prefs.frostStrength,
-                    child: Column(
-                      children: [
-                        _BoxHeader(
-                          title: title,
-                          hovering: _hovering,
-                          isPinned: _isPinned,
-                          isCollapsed: _isCollapsed,
-                          displayMode: _displayMode,
-                          onToggleDisplayMode: _toggleDisplayMode,
-                          onToggleCollapsed: _toggleCollapsed,
-                          onMenu: _showMenu,
-                          onRefresh: _refresh,
-                          onClose: () => windowManager.close(),
-                          onDragStart:
-                              _loadOtherBounds, // Refresh bounds on drag start
-                        ),
-                        // We keep the widget in the tree to allow AnimatedAlign to work.
-                        // It only shows if _isCollapsed is false OR _showContent is true.
-                        if (!_isCollapsed || _showContent || _hovering)
-                          Expanded(
-                            child: ClipRect(
-                              child: AnimatedAlign(
-                                duration: const Duration(milliseconds: 400),
-                                curve: Curves.easeInOutCubic,
-                                alignment: Alignment.topCenter,
-                                heightFactor: _showContent ? 1.0 : 0.0,
-                                child:
-                                    Column(
-                                          children: [
-                                            const Divider(height: 1),
-                                            Expanded(
-                                              child: _loading
-                                                  ? const Center(
-                                                      child:
-                                                          CircularProgressIndicator(),
-                                                    )
-                                                  : _error != null
-                                                  ? Center(
-                                                      child: Text(
-                                                        '加载失败：$_error',
-                                                        style: theme
-                                                            .textTheme
-                                                            .bodyMedium,
-                                                      ),
-                                                    )
-                                                  : _entries.isEmpty
-                                                  ? Center(
-                                                      child: Text(
-                                                        '暂无内容',
-                                                        style: theme
-                                                            .textTheme
-                                                            .bodyMedium
-                                                            ?.copyWith(
-                                                              color: theme
-                                                                  .colorScheme
-                                                                  .onSurface
-                                                                  .withValues(
-                                                                    alpha: 0.7,
-                                                                  ),
-                                                            ),
-                                                      ),
-                                                    )
-                                                  : _displayMode ==
-                                                        BoxDisplayMode.grid
-                                                  ? _BoxGrid(
-                                                      entries: _entries,
-                                                      type: widget.type,
-                                                      onOpen: _openEntity,
-                                                    )
-                                                  : _BoxList(
-                                                      entries: _entries,
-                                                      type: widget.type,
-                                                      onOpen: _openEntity,
-                                                    ),
-                                            ),
-                                          ],
-                                        )
-                                        .animate(target: _showContent ? 1 : 0)
-                                        .fadeIn(
-                                          duration: 300.ms,
-                                          curve: Curves.easeIn,
-                                        )
-                                        .slideY(
-                                          begin: -0.05,
-                                          end: 0,
-                                          duration: 400.ms,
-                                          curve: Curves.easeOutCubic,
-                                        )
-                                        .scaleXY(
-                                          begin: 0.98,
-                                          end: 1.0,
-                                          duration: 400.ms,
-                                          curve: Curves.easeOutCubic,
-                                        ),
-                              ),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 250),
+                    curve: Curves.fastOutSlowIn,
+                    // Use expanded height or default when showContent is true
+                    height: _showContent ? null : 50.0,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: GlassContainer(
+                        opacity: prefs.transparency,
+                        blurSigma: 18 * prefs.frostStrength,
+                        child: Column(
+                          children: [
+                            _BoxHeader(
+                              title: title,
+                              hovering: _hovering,
+                              isPinned: _isPinned,
+                              isCollapsed: _isCollapsed,
+                              displayMode: _displayMode,
+                              onToggleDisplayMode: _toggleDisplayMode,
+                              onToggleCollapsed: _toggleCollapsed,
+                              onMenu: _showMenu,
+                              onRefresh: _refresh,
+                              onClose: () => windowManager.close(),
+                              onDragStart: () async {
+                                setState(() => _isDragging = true);
+                                // If dragging a collapsed box, expand it immediately
+                                if (_isCollapsed) {
+                                  final targetHeight =
+                                      _expandedSize?.height ?? 300;
+                                  final curSize = await windowManager.getSize();
+                                  await windowManager.setSize(
+                                    Size(curSize.width, targetHeight),
+                                  );
+                                  if (mounted) {
+                                    setState(() {
+                                      _isCollapsed = false;
+                                      _showContent = true;
+                                    });
+                                  }
+                                }
+                                _loadOtherBounds();
+                              },
+                              onDragEnd: () {
+                                if (mounted)
+                                  setState(() => _isDragging = false);
+                              },
                             ),
-                          ),
-                      ],
+                            // We keep the widget in the tree to allow AnimatedAlign to work.
+                            // It only shows if _isCollapsed is false OR _showContent is true.
+                            if (!_isCollapsed || _showContent || _hovering)
+                              Expanded(
+                                child: ClipRect(
+                                  child: AnimatedAlign(
+                                    duration: const Duration(milliseconds: 200),
+                                    curve: Curves.easeOutCubic,
+                                    alignment: Alignment.topCenter,
+                                    heightFactor: _showContent ? 1.0 : 0.0,
+                                    child:
+                                        Column(
+                                              children: [
+                                                const Divider(height: 1),
+                                                Expanded(
+                                                  child: _loading
+                                                      ? const Center(
+                                                          child:
+                                                              CircularProgressIndicator(),
+                                                        )
+                                                      : _error != null
+                                                      ? Center(
+                                                          child: Text(
+                                                            '加载失败：$_error',
+                                                            style: theme
+                                                                .textTheme
+                                                                .bodyMedium,
+                                                          ),
+                                                        )
+                                                      : _entries.isEmpty
+                                                      ? Center(
+                                                          child: Text(
+                                                            '暂无内容',
+                                                            style: theme
+                                                                .textTheme
+                                                                .bodyMedium
+                                                                ?.copyWith(
+                                                                  color: theme
+                                                                      .colorScheme
+                                                                      .onSurface
+                                                                      .withValues(
+                                                                        alpha:
+                                                                            0.7,
+                                                                      ),
+                                                                ),
+                                                          ),
+                                                        )
+                                                      : _displayMode ==
+                                                            BoxDisplayMode.grid
+                                                      ? _BoxGrid(
+                                                          entries: _entries,
+                                                          type: widget.type,
+                                                          onOpen: _openEntity,
+                                                        )
+                                                      : _BoxList(
+                                                          entries: _entries,
+                                                          type: widget.type,
+                                                          onOpen: _openEntity,
+                                                        ),
+                                                ),
+                                              ],
+                                            )
+                                            .animate(
+                                              target: _showContent ? 1 : 0,
+                                            )
+                                            .fadeIn(
+                                              duration: 300.ms,
+                                              curve: Curves.easeIn,
+                                            )
+                                            .slideY(
+                                              begin: -0.05,
+                                              end: 0,
+                                              duration: 400.ms,
+                                              curve: Curves.easeOutCubic,
+                                            )
+                                            .scaleXY(
+                                              begin: 0.98,
+                                              end: 1.0,
+                                              duration: 400.ms,
+                                              curve: Curves.easeOutCubic,
+                                            ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -639,7 +693,10 @@ class _BoxHeader extends StatelessWidget {
     required this.onRefresh,
     required this.onClose,
     this.onDragStart,
+    this.onDragEnd,
   });
+
+  final VoidCallback? onDragEnd;
 
   @override
   Widget build(BuildContext context) {
@@ -654,6 +711,8 @@ class _BoxHeader extends StatelessWidget {
           onDragStart?.call();
           windowManager.startDragging();
         },
+        onPanEnd: (_) => onDragEnd?.call(),
+        onPanCancel: () => onDragEnd?.call(),
         child: Row(
           children: [
             const SizedBox(width: 10),
