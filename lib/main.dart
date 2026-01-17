@@ -97,6 +97,12 @@ Future<void> main(List<String> args) async {
     ),
     () async {
       await windowManager.setAsFrameless();
+      // Enable resizing but disable maximize
+      await windowManager.setResizable(true);
+      await windowManager.setMaximizable(false);
+      await windowManager.setMinimizable(true);
+      // Prevent Windows Aero Snap when dragging
+      await windowManager.setPreventClose(false);
       if (bounds != null) {
         await windowManager.setPosition(
           Offset(bounds.x.toDouble(), bounds.y.toDouble()),

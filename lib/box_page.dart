@@ -8,6 +8,7 @@ import 'package:window_manager/window_manager.dart';
 import 'main.dart';
 import 'glass_container.dart';
 import 'widgets/folder_icon.dart';
+import 'widgets/window_resize_area.dart';
 import 'shared_prefs_helper.dart';
 import 'box_prefs.dart';
 
@@ -410,155 +411,157 @@ class _BoxPageState extends State<BoxPage>
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      body: SafeArea(
-        child: MouseRegion(
-          onEnter: (_) async {
-            // Auto-expand FIRST if collapsed
-            if (_isCollapsed) {
-              // Use saved size or default
-              final targetSize = _expandedSize ?? const Size(500, 300);
-              await windowManager.setSize(targetSize);
-              await Future.delayed(const Duration(milliseconds: 50));
-              if (mounted) setState(() => _showContent = true);
-            }
-            if (mounted) setState(() => _hovering = true);
-          },
-          onExit: (_) async {
-            if (mounted) setState(() => _hovering = false);
-
-            // Auto-collapse when leaving if in collapsed mode
-            if (_isCollapsed) {
-              if (mounted) setState(() => _showContent = false);
-              await Future.delayed(const Duration(milliseconds: 200));
-              if (mounted) {
-                final currentSize = await windowManager.getSize();
-                await windowManager.setSize(Size(currentSize.width, 50));
+      body: WindowResizeArea(
+        child: SafeArea(
+          child: MouseRegion(
+            onEnter: (_) async {
+              // Auto-expand FIRST if collapsed
+              if (_isCollapsed) {
+                // Use saved size or default
+                final targetSize = _expandedSize ?? const Size(500, 300);
+                await windowManager.setSize(targetSize);
+                await Future.delayed(const Duration(milliseconds: 50));
+                if (mounted) setState(() => _showContent = true);
               }
-            }
-          },
-          child: Stack(
-            clipBehavior: Clip.none, // Allow lines to extend out
-            children: [
-              RepaintBoundary(
-                child: GlassContainer(
-                  opacity: prefs.transparency,
-                  blurSigma: 18 * prefs.frostStrength,
-                  child: Column(
-                    children: [
-                      _BoxHeader(
-                        title: title,
-                        hovering: _hovering,
-                        isPinned: _isPinned,
-                        isCollapsed: _isCollapsed,
-                        displayMode: _displayMode,
-                        onToggleDisplayMode: _toggleDisplayMode,
-                        onToggleCollapsed: _toggleCollapsed,
-                        onMenu: _showMenu,
-                        onRefresh: _refresh,
-                        onClose: () => windowManager.close(),
-                        onDragStart:
-                            _loadOtherBounds, // Refresh bounds on drag start
-                      ),
+              if (mounted) setState(() => _hovering = true);
+            },
+            onExit: (_) async {
+              if (mounted) setState(() => _hovering = false);
 
-                      if (!_isCollapsed || _showContent)
-                        Expanded(
-                          child: AnimatedOpacity(
-                            duration: const Duration(milliseconds: 200),
-                            opacity: _showContent ? 1.0 : 0.0,
-                            curve: Curves.easeInOut,
-                            child: Column(
-                              children: [
-                                const Divider(height: 1),
-                                Expanded(
-                                  child: _loading
-                                      ? const Center(
-                                          child: CircularProgressIndicator(),
-                                        )
-                                      : _error != null
-                                      ? Center(
-                                          child: Text(
-                                            '加载失败：$_error',
-                                            style: theme.textTheme.bodyMedium,
+              // Auto-collapse when leaving if in collapsed mode
+              if (_isCollapsed) {
+                if (mounted) setState(() => _showContent = false);
+                await Future.delayed(const Duration(milliseconds: 200));
+                if (mounted) {
+                  final currentSize = await windowManager.getSize();
+                  await windowManager.setSize(Size(currentSize.width, 50));
+                }
+              }
+            },
+            child: Stack(
+              clipBehavior: Clip.none, // Allow lines to extend out
+              children: [
+                RepaintBoundary(
+                  child: GlassContainer(
+                    opacity: prefs.transparency,
+                    blurSigma: 18 * prefs.frostStrength,
+                    child: Column(
+                      children: [
+                        _BoxHeader(
+                          title: title,
+                          hovering: _hovering,
+                          isPinned: _isPinned,
+                          isCollapsed: _isCollapsed,
+                          displayMode: _displayMode,
+                          onToggleDisplayMode: _toggleDisplayMode,
+                          onToggleCollapsed: _toggleCollapsed,
+                          onMenu: _showMenu,
+                          onRefresh: _refresh,
+                          onClose: () => windowManager.close(),
+                          onDragStart:
+                              _loadOtherBounds, // Refresh bounds on drag start
+                        ),
+
+                        if (!_isCollapsed || _showContent)
+                          Expanded(
+                            child: AnimatedOpacity(
+                              duration: const Duration(milliseconds: 200),
+                              opacity: _showContent ? 1.0 : 0.0,
+                              curve: Curves.easeInOut,
+                              child: Column(
+                                children: [
+                                  const Divider(height: 1),
+                                  Expanded(
+                                    child: _loading
+                                        ? const Center(
+                                            child: CircularProgressIndicator(),
+                                          )
+                                        : _error != null
+                                        ? Center(
+                                            child: Text(
+                                              '加载失败：$_error',
+                                              style: theme.textTheme.bodyMedium,
+                                            ),
+                                          )
+                                        : _entries.isEmpty
+                                        ? Center(
+                                            child: Text(
+                                              '暂无内容',
+                                              style: theme.textTheme.bodyMedium
+                                                  ?.copyWith(
+                                                    color: theme
+                                                        .colorScheme
+                                                        .onSurface
+                                                        .withValues(alpha: 0.7),
+                                                  ),
+                                            ),
+                                          )
+                                        : _displayMode == BoxDisplayMode.grid
+                                        ? _BoxGrid(
+                                            entries: _entries,
+                                            type: widget.type,
+                                            onOpen: _openEntity,
+                                          )
+                                        : _BoxList(
+                                            entries: _entries,
+                                            type: widget.type,
+                                            onOpen: _openEntity,
                                           ),
-                                        )
-                                      : _entries.isEmpty
-                                      ? Center(
-                                          child: Text(
-                                            '暂无内容',
-                                            style: theme.textTheme.bodyMedium
-                                                ?.copyWith(
-                                                  color: theme
-                                                      .colorScheme
-                                                      .onSurface
-                                                      .withValues(alpha: 0.7),
-                                                ),
-                                          ),
-                                        )
-                                      : _displayMode == BoxDisplayMode.grid
-                                      ? _BoxGrid(
-                                          entries: _entries,
-                                          type: widget.type,
-                                          onOpen: _openEntity,
-                                        )
-                                      : _BoxList(
-                                          entries: _entries,
-                                          type: widget.type,
-                                          onOpen: _openEntity,
-                                        ),
-                                ),
-                              ],
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-              ),
-              // Alignment Lines - Vertical
-              if (_alignLeft)
-                Positioned(
-                  left: 0,
-                  top: -2000,
-                  bottom: -2000, // Extend infinitely visually
-                  width: 2,
-                  child: Center(
-                    child: Container(width: 2, color: Colors.blueAccent),
+                // Alignment Lines - Vertical
+                if (_alignLeft)
+                  Positioned(
+                    left: 0,
+                    top: -2000,
+                    bottom: -2000, // Extend infinitely visually
+                    width: 2,
+                    child: Center(
+                      child: Container(width: 2, color: Colors.blueAccent),
+                    ),
                   ),
-                ),
-              if (_alignRight)
-                Positioned(
-                  right: 0,
-                  top: -2000,
-                  bottom: -2000,
-                  width: 2,
-                  child: Center(
-                    child: Container(width: 2, color: Colors.blueAccent),
+                if (_alignRight)
+                  Positioned(
+                    right: 0,
+                    top: -2000,
+                    bottom: -2000,
+                    width: 2,
+                    child: Center(
+                      child: Container(width: 2, color: Colors.blueAccent),
+                    ),
                   ),
-                ),
-              // Alignment Lines - Horizontal
-              if (_alignTop)
-                Positioned(
-                  top: 0,
-                  left: -2000,
-                  right: -2000,
-                  height: 2,
-                  child: Center(
-                    child: Container(height: 2, color: Colors.blueAccent),
+                // Alignment Lines - Horizontal
+                if (_alignTop)
+                  Positioned(
+                    top: 0,
+                    left: -2000,
+                    right: -2000,
+                    height: 2,
+                    child: Center(
+                      child: Container(height: 2, color: Colors.blueAccent),
+                    ),
                   ),
-                ),
-              if (_alignBottom)
-                Positioned(
-                  bottom: 0,
-                  left: -2000,
-                  right: -2000,
-                  height: 2,
-                  child: Center(
-                    child: Container(height: 2, color: Colors.blueAccent),
+                if (_alignBottom)
+                  Positioned(
+                    bottom: 0,
+                    left: -2000,
+                    right: -2000,
+                    height: 2,
+                    child: Center(
+                      child: Container(height: 2, color: Colors.blueAccent),
+                    ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
-        ),
+        ), // WindowResizeArea
       ),
     );
   }
