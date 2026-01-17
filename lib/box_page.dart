@@ -411,49 +411,49 @@ class _BoxPageState extends State<BoxPage>
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      body: WindowResizeArea(
-        child: SafeArea(
-          child: MouseRegion(
-            onEnter: (_) async {
-              if (mounted) setState(() => _hovering = true);
-              // Auto-expand FIRST if collapsed
-              if (_isCollapsed) {
-                // Use saved size or default
-                final targetSize = _expandedSize ?? const Size(500, 300);
-                await windowManager.setSize(targetSize);
-                // Tiny delay to ensure window has resized before showing content
-                await Future.delayed(const Duration(milliseconds: 50));
-                // Only show content if we are still hovering
-                if (mounted && _hovering) {
-                  setState(() => _showContent = true);
-                }
-              }
-            },
-            onExit: (_) async {
-              if (mounted) setState(() => _hovering = false);
+      body: MouseRegion(
+        onEnter: (_) async {
+          if (mounted) setState(() => _hovering = true);
+          // Auto-expand FIRST if collapsed
+          if (_isCollapsed) {
+            // Use saved size or default
+            final targetSize = _expandedSize ?? const Size(500, 300);
+            await windowManager.setSize(targetSize);
+            // Tiny delay to ensure window has resized before showing content
+            await Future.delayed(const Duration(milliseconds: 50));
+            // Only show content if we are still hovering
+            if (mounted && _hovering) {
+              setState(() => _showContent = true);
+            }
+          }
+        },
+        onExit: (_) async {
+          if (mounted) setState(() => _hovering = false);
 
-              // Auto-collapse when leaving if in collapsed mode
-              if (_isCollapsed) {
-                // Delay before hiding content to feel natural
-                await Future.delayed(const Duration(milliseconds: 100));
+          // Auto-collapse when leaving if in collapsed mode
+          if (_isCollapsed) {
+            // Delay before hiding content to feel natural
+            await Future.delayed(const Duration(milliseconds: 100));
 
-                // If we moved back in during the delay, don't collapse
-                if (_hovering) return;
+            // If we moved back in during the delay, don't collapse
+            if (_hovering) return;
 
-                if (mounted) setState(() => _showContent = false);
+            if (mounted) setState(() => _showContent = false);
 
-                // Delay before shrinking window to let content fade/reveal out
-                await Future.delayed(const Duration(milliseconds: 150));
+            // Delay before shrinking window to let content fade/reveal out
+            await Future.delayed(const Duration(milliseconds: 150));
 
-                // Check again to avoid race condition
-                if (_hovering) return;
+            // Check again to avoid race condition
+            if (_hovering) return;
 
-                if (mounted) {
-                  final currentSize = await windowManager.getSize();
-                  await windowManager.setSize(Size(currentSize.width, 50));
-                }
-              }
-            },
+            if (mounted) {
+              final currentSize = await windowManager.getSize();
+              await windowManager.setSize(Size(currentSize.width, 50));
+            }
+          }
+        },
+        child: WindowResizeArea(
+          child: SafeArea(
             child: Stack(
               clipBehavior: Clip.none, // Allow lines to extend out
               children: [
@@ -586,7 +586,7 @@ class _BoxPageState extends State<BoxPage>
               ],
             ),
           ),
-        ), // WindowResizeArea
+        ),
       ),
     );
   }
