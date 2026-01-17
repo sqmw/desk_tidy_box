@@ -8,7 +8,7 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 import 'package:path/path.dart' as path;
-import 'package:image/image.dart' as img;
+// import 'package:image/image.dart' as img; // Disabled - dependency removed
 import 'package:win32/win32.dart';
 
 const int _shilJumbo = 0x4;
@@ -238,6 +238,10 @@ int _getSystemIconIndex(String filePath, {bool checkDisk = false}) {
 }
 
 Uint8List? _hiconToPng(int icon, {required int size}) {
+  // Disabled - image package dependency removed
+  return null;
+
+  /* 
   final screenDC = GetDC(NULL);
   if (screenDC == 0) return null;
   final memDC = CreateCompatibleDC(screenDC);
@@ -298,6 +302,7 @@ Uint8List? _hiconToPng(int icon, {required int size}) {
     calloc.free(ppBits);
     calloc.free(bmi);
   }
+  */
 }
 
 // SHCreateItemFromParsingName
@@ -403,6 +408,10 @@ Uint8List? _getThumbnailIsolate(String filePath, int size) {
 }
 
 Uint8List? _hbitmapToPng(int hbitmap) {
+  // Disabled - image package dependency removed
+  return null;
+
+  /*
   final screenDC = GetDC(NULL);
   if (screenDC == 0) return null;
   final memDC = CreateCompatibleDC(screenDC);
@@ -466,4 +475,5 @@ Uint8List? _hbitmapToPng(int hbitmap) {
     calloc.free(bitmap);
     calloc.free(bmi);
   }
+  */
 }

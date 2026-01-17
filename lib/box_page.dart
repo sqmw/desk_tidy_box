@@ -37,6 +37,10 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
   bool _alignTop = false;
   bool _alignBottom = false;
 
+  // Display mode
+  BoxDisplayMode _displayMode = BoxDisplayMode.grid;
+  bool _isPinned = false;
+
   @override
   void initState() {
     super.initState();
@@ -56,7 +60,17 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
         ? widget.desktopPath
         : await _getDesktopPath();
     if (!mounted) return;
-    setState(() => _desktopPath = desktopPath);
+
+    // Load display mode
+    final mode = await BoxPrefs().loadDisplayMode(widget.type.name);
+    final pinned = await BoxPrefs().loadPinned(widget.type.name);
+
+    setState(() {
+      _desktopPath = desktopPath;
+      _displayMode = mode;
+      _isPinned = pinned;
+    });
+
     await _refresh();
   }
 
@@ -242,6 +256,20 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
     await Process.run('explorer.exe', [entity.path]);
   }
 
+  Future<void> _toggleDisplayMode() async {
+    final newMode = _displayMode == BoxDisplayMode.grid
+        ? BoxDisplayMode.list
+        : BoxDisplayMode.grid;
+    setState(() => _displayMode = newMode);
+    await BoxPrefs().saveDisplayMode(widget.type.name, newMode);
+  }
+
+  Future<void> _togglePinned() async {
+    final newPinned = !_isPinned;
+    setState(() => _isPinned = newPinned);
+    await BoxPrefs().savePinned(widget.type.name, newPinned);
+  }
+
   Future<void> _showMenu() async {
     final overlay =
         Overlay.of(context).context.findRenderObject() as RenderBox?;
@@ -249,7 +277,7 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
     final result = await showMenu<String>(
       context: context,
       position: RelativeRect.fromLTRB(origin.dx + 12, origin.dy + 44, 0, 0),
-      items: const [
+      items: [
         PopupMenuItem(
           value: 'refresh',
           child: ListTile(leading: Icon(Icons.refresh), title: Text('刷新')),
@@ -259,6 +287,13 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
           child: ListTile(
             leading: Icon(Icons.folder_open),
             title: Text('打开桌面文件夹'),
+          ),
+        ),
+        PopupMenuItem(
+          value: 'toggle_pin',
+          child: ListTile(
+            leading: Icon(_isPinned ? Icons.push_pin : Icons.push_pin_outlined),
+            title: Text(_isPinned ? '取消固定' : '固定盒子'),
           ),
         ),
         PopupMenuDivider(),
@@ -277,6 +312,9 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
         if (_desktopPath.isNotEmpty) {
           await Process.run('explorer.exe', [_desktopPath]);
         }
+        break;
+      case 'toggle_pin':
+        await _togglePinned();
         break;
       case 'close':
         await windowManager.close();
@@ -308,6 +346,9 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
                       _BoxHeader(
                         title: title,
                         hovering: _hovering,
+                        isPinned: _isPinned,
+                        displayMode: _displayMode,
+                        onToggleDisplayMode: _toggleDisplayMode,
                         onMenu: _showMenu,
                         onRefresh: _refresh,
                         onClose: () => windowManager.close(),
@@ -335,7 +376,13 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
                                   ),
                                 ),
                               )
-                            : _BoxGrid(
+                            : _displayMode == BoxDisplayMode.grid
+                            ? _BoxGrid(
+                                entries: _entries,
+                                type: widget.type,
+                                onOpen: _openEntity,
+                              )
+                            : _BoxList(
                                 entries: _entries,
                                 type: widget.type,
                                 onOpen: _openEntity,
@@ -398,6 +445,9 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
 class _BoxHeader extends StatelessWidget {
   final String title;
   final bool hovering;
+  final bool isPinned;
+  final BoxDisplayMode displayMode;
+  final VoidCallback onToggleDisplayMode;
   final VoidCallback onMenu;
   final VoidCallback onRefresh;
   final VoidCallback onClose;
@@ -406,6 +456,9 @@ class _BoxHeader extends StatelessWidget {
   const _BoxHeader({
     required this.title,
     required this.hovering,
+    required this.isPinned,
+    required this.displayMode,
+    required this.onToggleDisplayMode,
     required this.onMenu,
     required this.onRefresh,
     required this.onClose,
@@ -421,6 +474,7 @@ class _BoxHeader extends StatelessWidget {
         // To allow dragging the window by the header
         behavior: HitTestBehavior.translucent,
         onPanStart: (_) {
+          if (isPinned) return; // Don't allow dragging if pinned
           onDragStart?.call();
           windowManager.startDragging();
         },
@@ -448,6 +502,17 @@ class _BoxHeader extends StatelessWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  IconButton(
+                    tooltip: displayMode == BoxDisplayMode.grid
+                        ? '列表视图'
+                        : '网格视图',
+                    onPressed: onToggleDisplayMode,
+                    icon: Icon(
+                      displayMode == BoxDisplayMode.grid
+                          ? Icons.view_list
+                          : Icons.grid_view,
+                    ),
+                  ),
                   IconButton(
                     tooltip: '刷新',
                     onPressed: onRefresh,
@@ -508,6 +573,73 @@ class _BoxGrid extends StatelessWidget {
               ? Icons.folder
               : Icons.insert_drive_file,
           theme: theme,
+        );
+      },
+    );
+  }
+}
+
+class _BoxList extends StatelessWidget {
+  final List<FileSystemEntity> entries;
+  final BoxType type;
+  final Future<void> Function(FileSystemEntity entity) onOpen;
+
+  const _BoxList({
+    required this.entries,
+    required this.type,
+    required this.onOpen,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return ListView.builder(
+      padding: const EdgeInsets.all(8),
+      itemCount: entries.length,
+      itemBuilder: (context, index) {
+        final entity = entries[index];
+        final name = path.basename(entity.path);
+
+        // Determine content widget
+        Widget iconWidget;
+        if (entity is Directory) {
+          iconWidget = FolderIcon(directory: entity, size: 32);
+        } else {
+          iconWidget = Icon(
+            type == BoxType.folders ? Icons.folder : Icons.insert_drive_file,
+            size: 32,
+            color: type == BoxType.folders
+                ? Colors.amber
+                : theme.colorScheme.primary,
+          );
+        }
+
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onDoubleTap: () => onOpen(entity),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              child: Row(
+                children: [
+                  iconWidget,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.9,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         );
       },
     );

@@ -1,5 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
+enum BoxDisplayMode { grid, list }
+
 class BoxBounds {
   final int x;
   final int y;
@@ -16,6 +18,7 @@ class BoxBounds {
 
 class BoxPrefs {
   static const String _prefix = 'box.window.';
+  static const String _displayModePrefix = 'box.';
 
   Future<BoxBounds?> loadBounds(String key) async {
     final prefs = await SharedPreferences.getInstance();
@@ -34,5 +37,30 @@ class BoxPrefs {
     await prefs.setInt('$_prefix$key.y', bounds.y);
     await prefs.setInt('$_prefix$key.w', bounds.width);
     await prefs.setInt('$_prefix$key.h', bounds.height);
+  }
+
+  Future<BoxDisplayMode> loadDisplayMode(String boxType) async {
+    final prefs = await SharedPreferences.getInstance();
+    final index = prefs.getInt('$_displayModePrefix$boxType.displayMode');
+    if (index == null) return BoxDisplayMode.grid; // Default
+    return BoxDisplayMode.values[index.clamp(
+      0,
+      BoxDisplayMode.values.length - 1,
+    )];
+  }
+
+  Future<void> saveDisplayMode(String boxType, BoxDisplayMode mode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('$_displayModePrefix$boxType.displayMode', mode.index);
+  }
+
+  Future<bool> loadPinned(String boxType) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('$_displayModePrefix$boxType.pinned') ?? false;
+  }
+
+  Future<void> savePinned(String boxType, bool pinned) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('$_displayModePrefix$boxType.pinned', pinned);
   }
 }

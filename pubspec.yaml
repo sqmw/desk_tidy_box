@@ -41,8 +41,6 @@ dependencies:
   cupertino_icons: ^1.0.8
   win32: ^5.0.0
   ffi: ^2.1.0
-  image: ^4.0.21
-  process_run: ^1.2.4
 
 dev_dependencies:
   flutter_test:
