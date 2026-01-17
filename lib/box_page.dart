@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -6,6 +7,9 @@ import 'package:window_manager/window_manager.dart';
 
 import 'main.dart';
 import 'glass_container.dart';
+import 'widgets/folder_icon.dart';
+import 'shared_prefs_helper.dart';
+import 'box_prefs.dart';
 
 class BoxPage extends StatefulWidget {
   final BoxType type;
@@ -17,17 +21,34 @@ class BoxPage extends StatefulWidget {
   State<BoxPage> createState() => _BoxPageState();
 }
 
-class _BoxPageState extends State<BoxPage> {
+class _BoxPageState extends State<BoxPage> with WindowListener {
   bool _hovering = false;
   bool _loading = true;
   String? _error;
   List<FileSystemEntity> _entries = const [];
   String _desktopPath = '';
 
+  // Alignment state
+  BoxBounds? _otherBounds;
+  DateTime? _lastMoveCheck;
+  // Visual state
+  bool _alignLeft = false;
+  bool _alignRight = false;
+  bool _alignTop = false;
+  bool _alignBottom = false;
+
   @override
   void initState() {
     super.initState();
+    windowManager.addListener(this);
     _init();
+    _loadOtherBounds();
+  }
+
+  @override
+  void dispose() {
+    windowManager.removeListener(this);
+    super.dispose();
   }
 
   Future<void> _init() async {
@@ -37,6 +58,107 @@ class _BoxPageState extends State<BoxPage> {
     if (!mounted) return;
     setState(() => _desktopPath = desktopPath);
     await _refresh();
+  }
+
+  @override
+  void onWindowFocus() {
+    _loadOtherBounds();
+  }
+
+  Future<void> _loadOtherBounds() async {
+    final otherType = widget.type == BoxType.folders
+        ? BoxType.files
+        : BoxType.folders;
+    final bounds = await BoxPrefs().loadBounds(otherType.name);
+    if (mounted) {
+      setState(() => _otherBounds = bounds);
+    }
+  }
+
+  @override
+  void onWindowMove() async {
+    if (_otherBounds == null) return;
+
+    // Throttle: Limit UI updates to ~60 FPS
+    final now = DateTime.now();
+    if (_lastMoveCheck != null &&
+        now.difference(_lastMoveCheck!).inMilliseconds < 16) {
+      return;
+    }
+    _lastMoveCheck = now;
+
+    final rect = await windowManager.getBounds();
+    final otherX = _otherBounds!.x.toDouble();
+    final otherY = _otherBounds!.y.toDouble();
+    final otherW = _otherBounds!.width.toDouble();
+    final otherH = _otherBounds!.height.toDouble();
+    final otherR = otherX + otherW;
+    final otherB = otherY + otherH;
+
+    const kThreshold = 20.0;
+
+    // Calculate deltas for all 4 vertical edges (Left/Right)
+    final dLL = (rect.left - otherX).abs();
+    final dLR = (rect.left - otherR).abs();
+    final dRL = (rect.right - otherX).abs();
+    final dRR = (rect.right - otherR).abs();
+
+    // Calculate deltas for all 4 horizontal edges (Top/Bottom)
+    final dTT = (rect.top - otherY).abs();
+    final dTB = (rect.top - otherB).abs();
+    final dBT = (rect.bottom - otherY).abs();
+    final dBB = (rect.bottom - otherB).abs();
+
+    // Find the minimum distance
+    double minD = kThreshold + 1;
+    String bestMatch = '';
+
+    void check(double d, String type) {
+      if (d < minD) {
+        minD = d;
+        bestMatch = type;
+      }
+    }
+
+    check(dLL, 'LL');
+    check(dLR, 'LR');
+    check(dRL, 'RL');
+    check(dRR, 'RR');
+    check(dTT, 'TT');
+    check(dTB, 'TB');
+    check(dBT, 'BT');
+    check(dBB, 'BB');
+
+    // Reset all
+    bool newAL = false;
+    bool newAR = false;
+    bool newAT = false;
+    bool newAB = false;
+
+    if (minD < kThreshold) {
+      // We have a winner - show ONLY that line
+      if (bestMatch == 'LL' || bestMatch == 'LR') {
+        newAL = true; // My Left aligns
+      } else if (bestMatch == 'RL' || bestMatch == 'RR') {
+        newAR = true; // My Right aligns
+      } else if (bestMatch == 'TT' || bestMatch == 'TB') {
+        newAT = true; // My Top aligns
+      } else if (bestMatch == 'BT' || bestMatch == 'BB') {
+        newAB = true; // My Bottom aligns
+      }
+    }
+
+    if (newAL != _alignLeft ||
+        newAR != _alignRight ||
+        newAT != _alignTop ||
+        newAB != _alignBottom) {
+      setState(() {
+        _alignLeft = newAL;
+        _alignRight = newAR;
+        _alignTop = newAT;
+        _alignBottom = newAB;
+      });
+    }
   }
 
   Future<String> _getDesktopPath() async {
@@ -166,6 +288,7 @@ class _BoxPageState extends State<BoxPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final title = widget.type == BoxType.folders ? '文件夹' : '文件和文档';
+    final prefs = SharedPrefsHelper();
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -173,48 +296,98 @@ class _BoxPageState extends State<BoxPage> {
         child: MouseRegion(
           onEnter: (_) => setState(() => _hovering = true),
           onExit: (_) => setState(() => _hovering = false),
-          child: GlassContainer(
-            opacity: 0.22,
-            blurSigma: 18,
-            child: Column(
-              children: [
-                _BoxHeader(
-                  title: title,
-                  hovering: _hovering,
-                  onMenu: _showMenu,
-                  onRefresh: _refresh,
-                  onClose: () => windowManager.close(),
-                ),
-                const Divider(height: 1),
-                Expanded(
-                  child: _loading
-                      ? const Center(child: CircularProgressIndicator())
-                      : _error != null
-                      ? Center(
-                          child: Text(
-                            '加载失败：$_error',
-                            style: theme.textTheme.bodyMedium,
-                          ),
-                        )
-                      : _entries.isEmpty
-                      ? Center(
-                          child: Text(
-                            '暂无内容',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onSurface.withValues(
-                                alpha: 0.7,
+          child: Stack(
+            clipBehavior: Clip.none, // Allow lines to extend out
+            children: [
+              RepaintBoundary(
+                child: GlassContainer(
+                  opacity: prefs.transparency,
+                  blurSigma: 18 * prefs.frostStrength,
+                  child: Column(
+                    children: [
+                      _BoxHeader(
+                        title: title,
+                        hovering: _hovering,
+                        onMenu: _showMenu,
+                        onRefresh: _refresh,
+                        onClose: () => windowManager.close(),
+                        onDragStart:
+                            _loadOtherBounds, // Refresh bounds on drag start
+                      ),
+                      const Divider(height: 1),
+                      Expanded(
+                        child: _loading
+                            ? const Center(child: CircularProgressIndicator())
+                            : _error != null
+                            ? Center(
+                                child: Text(
+                                  '加载失败：$_error',
+                                  style: theme.textTheme.bodyMedium,
+                                ),
+                              )
+                            : _entries.isEmpty
+                            ? Center(
+                                child: Text(
+                                  '暂无内容',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: theme.colorScheme.onSurface
+                                        .withValues(alpha: 0.7),
+                                  ),
+                                ),
+                              )
+                            : _BoxGrid(
+                                entries: _entries,
+                                type: widget.type,
+                                onOpen: _openEntity,
                               ),
-                            ),
-                          ),
-                        )
-                      : _BoxGrid(
-                          entries: _entries,
-                          type: widget.type,
-                          onOpen: _openEntity,
-                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ],
-            ),
+              ),
+              // Alignment Lines - Vertical
+              if (_alignLeft)
+                Positioned(
+                  left: 0,
+                  top: -2000,
+                  bottom: -2000, // Extend infinitely visually
+                  width: 2,
+                  child: Center(
+                    child: Container(width: 2, color: Colors.blueAccent),
+                  ),
+                ),
+              if (_alignRight)
+                Positioned(
+                  right: 0,
+                  top: -2000,
+                  bottom: -2000,
+                  width: 2,
+                  child: Center(
+                    child: Container(width: 2, color: Colors.blueAccent),
+                  ),
+                ),
+              // Alignment Lines - Horizontal
+              if (_alignTop)
+                Positioned(
+                  top: 0,
+                  left: -2000,
+                  right: -2000,
+                  height: 2,
+                  child: Center(
+                    child: Container(height: 2, color: Colors.blueAccent),
+                  ),
+                ),
+              if (_alignBottom)
+                Positioned(
+                  bottom: 0,
+                  left: -2000,
+                  right: -2000,
+                  height: 2,
+                  child: Center(
+                    child: Container(height: 2, color: Colors.blueAccent),
+                  ),
+                ),
+            ],
           ),
         ),
       ),
@@ -228,6 +401,7 @@ class _BoxHeader extends StatelessWidget {
   final VoidCallback onMenu;
   final VoidCallback onRefresh;
   final VoidCallback onClose;
+  final VoidCallback? onDragStart;
 
   const _BoxHeader({
     required this.title,
@@ -235,6 +409,7 @@ class _BoxHeader extends StatelessWidget {
     required this.onMenu,
     required this.onRefresh,
     required this.onClose,
+    this.onDragStart,
   });
 
   @override
@@ -243,8 +418,12 @@ class _BoxHeader extends StatelessWidget {
     return SizedBox(
       height: 44,
       child: GestureDetector(
+        // To allow dragging the window by the header
         behavior: HitTestBehavior.translucent,
-        onPanStart: (_) => windowManager.startDragging(),
+        onPanStart: (_) {
+          onDragStart?.call();
+          windowManager.startDragging();
+        },
         child: Row(
           children: [
             const SizedBox(width: 10),
@@ -355,6 +534,19 @@ class _BoxTile extends StatelessWidget {
     final hover = theme.colorScheme.surfaceContainerHighest.withValues(
       alpha: 0.25,
     );
+
+    // Determine content widget
+    Widget content;
+    if (entity is Directory) {
+      content = FolderIcon(directory: entity as Directory, size: 36);
+    } else {
+      content = Icon(
+        icon,
+        size: 36,
+        color: icon == Icons.folder ? Colors.amber : theme.colorScheme.primary,
+      );
+    }
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -366,13 +558,7 @@ class _BoxTile extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                icon,
-                size: 36,
-                color: icon == Icons.folder
-                    ? Colors.amber
-                    : theme.colorScheme.primary,
-              ),
+              content,
               const SizedBox(height: 4),
               Flexible(
                 child: Tooltip(

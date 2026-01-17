@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:screen_retriever/screen_retriever.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'box_page.dart';
 import 'box_prefs.dart';
+import 'shared_prefs_helper.dart';
 
 /// Box types
 enum BoxType { folders, files }
@@ -51,7 +53,36 @@ Future<void> main(List<String> args) async {
 
   // Restore window bounds if available
   final prefs = BoxPrefs();
-  final bounds = await prefs.loadBounds(boxArgs.type.name);
+  final sharedPrefs = SharedPrefsHelper();
+  await sharedPrefs.init();
+
+  BoxBounds? bounds = await prefs.loadBounds(boxArgs.type.name);
+
+  // Calculate default position if no saved bounds
+  if (bounds == null) {
+    try {
+      final display = await screenRetriever.getPrimaryDisplay();
+      final screenW = display.visibleSize?.width ?? display.size.width;
+      // Using visibleSize to account for taskbar if possible, otherwise size.
+      // screen_retriever Display has .size and .visibleSize
+
+      const double w = 320;
+      const double h = 280;
+      final double x = screenW - w - 20; // 20px padding from right
+
+      final double y = boxArgs.type == BoxType.folders ? 100 : 100 + h + 20;
+
+      // Save these bounds so we can use them in waitUntilReadyToShow
+      bounds = BoxBounds(
+        x: x.round(),
+        y: y.round(),
+        width: w.round(),
+        height: h.round(),
+      );
+    } catch (_) {
+      // Fallback if screen retriever fails
+    }
+  }
 
   await windowManager.waitUntilReadyToShow(
     WindowOptions(
@@ -65,6 +96,7 @@ Future<void> main(List<String> args) async {
           : const Size(320, 280),
     ),
     () async {
+      await windowManager.setAsFrameless();
       if (bounds != null) {
         await windowManager.setPosition(
           Offset(bounds.x.toDouble(), bounds.y.toDouble()),
