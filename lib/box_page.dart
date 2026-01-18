@@ -619,12 +619,15 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
                     ),
                   ),
                 ),
-                // Alignment Lines - Vertical
+                // Alignment Lines - DISABLED
+                // TODO: Re-implement using Win32 API for real-time rendering
+                // See docs/alignment_lines_issue.md for details
+                /*
                 if (_alignLeft)
                   Positioned(
                     left: 0,
                     top: -2000,
-                    bottom: -2000, // Extend infinitely visually
+                    bottom: -2000,
                     width: 2,
                     child: Center(
                       child: Container(width: 2, color: Colors.blueAccent),
@@ -640,7 +643,6 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
                       child: Container(width: 2, color: Colors.blueAccent),
                     ),
                   ),
-                // Alignment Lines - Horizontal
                 if (_alignTop)
                   Positioned(
                     top: 0,
@@ -661,6 +663,7 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
                       child: Container(height: 2, color: Colors.blueAccent),
                     ),
                   ),
+                */
               ],
             ),
           ),
