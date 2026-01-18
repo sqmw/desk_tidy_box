@@ -539,6 +539,8 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
                                     heightFactor: _showContent ? 1.0 : 0.0,
                                     child:
                                         Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.stretch,
                                               children: [
                                                 const Divider(height: 1),
                                                 Expanded(
@@ -821,69 +823,363 @@ class _BoxGrid extends StatelessWidget {
   }
 }
 
-class _BoxList extends StatelessWidget {
+class _BoxList extends StatefulWidget {
   final List<FileSystemEntity> entries;
   final BoxType type;
   final Future<void> Function(FileSystemEntity entity) onOpen;
 
   const _BoxList({
+    super.key,
     required this.entries,
     required this.type,
     required this.onOpen,
   });
 
   @override
+  State<_BoxList> createState() => _BoxListState();
+}
+
+class _BoxListState extends State<_BoxList> {
+  // Layout Constants
+  static const double kHandleZoneWidth = 24.0;
+  static const double kSidePadding = 16.0;
+
+  // Initial widths for columns
+  double _nameWidth = 250;
+  double _dateWidth = 140;
+  double _typeWidth = 80;
+  double _sizeWidth = 80;
+
+  @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return ListView.builder(
-      padding: const EdgeInsets.all(8),
-      itemCount: entries.length,
-      itemBuilder: (context, index) {
-        final entity = entries[index];
-        final name = path.basename(entity.path);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Precise calculation of fixed width elements:
+        // 1. Column widths for Date, Type, Size
+        // 2. 3 Resize handles (each 24px)
+        // 3. Side paddings (16px left, 16px right)
+        final fixedColumnsWidth = _dateWidth + _typeWidth + _sizeWidth;
+        final totalDecorationWidth =
+            (kSidePadding * 2) + (kHandleZoneWidth * 3);
+        final totalWidth =
+            _nameWidth + fixedColumnsWidth + totalDecorationWidth;
 
-        // Determine content widget
-        Widget iconWidget;
-        if (entity is Directory) {
-          iconWidget = FolderIcon(directory: entity, size: 32);
-        } else {
-          iconWidget = Icon(
-            type == BoxType.folders ? Icons.folder : Icons.insert_drive_file,
-            size: 32,
-            color: type == BoxType.folders
-                ? Colors.amber
-                : theme.colorScheme.primary,
-          );
-        }
-
-        return Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onDoubleTap: () => onOpen(entity),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              child: Row(
-                children: [
-                  iconWidget,
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurface.withValues(
-                          alpha: 0.9,
-                        ),
+        return ScrollConfiguration(
+          behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: const ClampingScrollPhysics(),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: SizedBox(
+                width: totalWidth,
+                child: Column(
+                  children: [
+                    _BoxListHeader(
+                      nameWidth: _nameWidth,
+                      dateWidth: _dateWidth,
+                      typeWidth: _typeWidth,
+                      sizeWidth: _sizeWidth,
+                      handleWidth: kHandleZoneWidth,
+                      sidePadding: kSidePadding,
+                      onResizeName: (dx) => setState(
+                        () =>
+                            _nameWidth = (_nameWidth + dx).clamp(100.0, 500.0),
+                      ),
+                      onResizeDate: (dx) => setState(
+                        () => _dateWidth = (_dateWidth + dx).clamp(80.0, 300.0),
+                      ),
+                      onResizeType: (dx) => setState(
+                        () => _typeWidth = (_typeWidth + dx).clamp(50.0, 200.0),
+                      ),
+                      onResizeSize: (dx) => setState(
+                        () => _sizeWidth = (_sizeWidth + dx).clamp(50.0, 200.0),
                       ),
                     ),
-                  ),
-                ],
+                    Expanded(
+                      child: ListView.builder(
+                        padding: EdgeInsets.zero, // Padding handled by items
+                        itemCount: widget.entries.length,
+                        itemBuilder: (context, index) {
+                          final entity = widget.entries[index];
+                          return _BoxListItem(
+                            entity: entity,
+                            type: widget.type,
+                            onOpen: widget.onOpen,
+                            nameWidth: _nameWidth,
+                            dateWidth: _dateWidth,
+                            typeWidth: _typeWidth,
+                            sizeWidth: _sizeWidth,
+                            handleWidth: kHandleZoneWidth,
+                            sidePadding: kSidePadding,
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
         );
       },
+    );
+  }
+}
+
+class _BoxListHeader extends StatelessWidget {
+  final double nameWidth;
+  final double dateWidth;
+  final double typeWidth;
+  final double sizeWidth;
+  final double handleWidth;
+  final double sidePadding;
+  final ValueChanged<double> onResizeName;
+  final ValueChanged<double> onResizeDate;
+  final ValueChanged<double> onResizeType;
+  final ValueChanged<double> onResizeSize;
+
+  const _BoxListHeader({
+    required this.nameWidth,
+    required this.dateWidth,
+    required this.typeWidth,
+    required this.sizeWidth,
+    required this.handleWidth,
+    required this.sidePadding,
+    required this.onResizeName,
+    required this.onResizeDate,
+    required this.onResizeType,
+    required this.onResizeSize,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final style = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+      fontWeight: FontWeight.w500,
+    );
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(sidePadding, 12, sidePadding, 12),
+      child: Row(
+        children: [
+          SizedBox(
+            width: nameWidth,
+            child: Text('名称', style: style),
+          ),
+          _ResizeHandle(width: handleWidth, onDrag: onResizeName),
+          SizedBox(
+            width: dateWidth,
+            child: Text('修改日期', style: style),
+          ),
+          _ResizeHandle(width: handleWidth, onDrag: onResizeDate),
+          SizedBox(
+            width: typeWidth,
+            child: Text('类型', style: style),
+          ),
+          _ResizeHandle(width: handleWidth, onDrag: onResizeType),
+          SizedBox(
+            width: sizeWidth,
+            child: Text('大小', style: style),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ResizeHandle extends StatelessWidget {
+  final double width;
+  final Function(double dx) onDrag;
+
+  const _ResizeHandle({required this.width, required this.onDrag});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeColumn,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragUpdate: (details) {
+          onDrag(details.delta.dx);
+        },
+        child: SizedBox(
+          width: width,
+          child: Center(
+            child: Container(
+              width: 1,
+              height: 16,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BoxListItem extends StatelessWidget {
+  final FileSystemEntity entity;
+  final BoxType type;
+  final Future<void> Function(FileSystemEntity entity) onOpen;
+
+  final double nameWidth;
+  final double dateWidth;
+  final double typeWidth;
+  final double sizeWidth;
+  final double handleWidth;
+  final double sidePadding;
+
+  const _BoxListItem({
+    required this.entity,
+    required this.type,
+    required this.onOpen,
+    required this.nameWidth,
+    required this.dateWidth,
+    required this.typeWidth,
+    required this.sizeWidth,
+    required this.handleWidth,
+    required this.sidePadding,
+  });
+
+  String _formatDate(DateTime date) {
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    return '${date.year}/${twoDigits(date.month)}/${twoDigits(date.day)} ${twoDigits(date.hour)}:${twoDigits(date.minute)}';
+  }
+
+  String _formatSize(int bytes) {
+    if (bytes <= 0) return '';
+    const suffixes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    var i = 0;
+    double size = bytes.toDouble();
+    while (size >= 1024 && i < suffixes.length - 1) {
+      size /= 1024;
+      i++;
+    }
+    return '${size.toStringAsFixed(size < 10 ? 1 : 0)} ${suffixes[i]}';
+  }
+
+  String _getType(FileSystemEntity entity) {
+    if (entity is Directory) return '文件夹';
+    final ext = path.extension(entity.path).toLowerCase();
+    if (ext.isEmpty) return '文件';
+    return ext.substring(1).toUpperCase() + ' 文件';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final name = path.basename(entity.path);
+
+    // Get file stats
+    FileStat? stat;
+    try {
+      stat = entity.statSync();
+    } catch (_) {}
+
+    final dateStr = stat != null ? _formatDate(stat.modified) : '';
+    final sizeStr = (entity is File && stat != null)
+        ? _formatSize(stat.size)
+        : '';
+    final typeStr = _getType(entity);
+
+    Widget iconWidget;
+    if (entity is Directory) {
+      iconWidget = FolderIcon(directory: entity as Directory, size: 24);
+    } else {
+      iconWidget = Icon(
+        type == BoxType.folders ? Icons.folder : Icons.insert_drive_file,
+        size: 24,
+        color: type == BoxType.folders
+            ? Colors.amber
+            : theme.colorScheme.primary,
+      );
+    }
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onDoubleTap: () => onOpen(entity),
+        hoverColor: theme.colorScheme.surfaceContainerHighest.withValues(
+          alpha: 0.2,
+        ),
+        borderRadius: BorderRadius.circular(6),
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(sidePadding, 8, sidePadding, 8),
+          child: Row(
+            children: [
+              // Name Column - Explicit width
+              SizedBox(
+                width: nameWidth,
+                child: Row(
+                  children: [
+                    iconWidget,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.9,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Match Header's ResizeHandle width
+              SizedBox(width: handleWidth),
+
+              // Date Column
+              SizedBox(
+                width: dateWidth,
+                child: Text(
+                  dateStr,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              SizedBox(width: handleWidth),
+
+              // Type Column
+              SizedBox(
+                width: typeWidth,
+                child: Text(
+                  typeStr,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              SizedBox(width: handleWidth),
+
+              // Size Column
+              SizedBox(
+                width: sizeWidth,
+                child: Text(
+                  sizeStr,
+                  textAlign: TextAlign.left,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
