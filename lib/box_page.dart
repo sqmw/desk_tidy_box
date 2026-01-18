@@ -739,43 +739,50 @@ class _BoxHeader extends StatelessWidget {
             AnimatedOpacity(
               duration: const Duration(milliseconds: 140),
               opacity: hovering ? 1 : 0,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    tooltip: isCollapsed ? '展开盒子' : '收起盒子',
-                    onPressed: onToggleCollapsed,
-                    icon: Icon(
-                      isCollapsed ? Icons.expand_less : Icons.expand_more,
+              child: GestureDetector(
+                // Absorb pan events to prevent window dragging when clicking buttons
+                onPanStart: (_) {}, // Empty handler absorbs the event
+                onPanUpdate: (_) {},
+                onPanEnd: (_) {},
+                behavior: HitTestBehavior.opaque,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: isCollapsed ? '展开盒子' : '收起盒子',
+                      onPressed: onToggleCollapsed,
+                      icon: Icon(
+                        isCollapsed ? Icons.expand_less : Icons.expand_more,
+                      ),
                     ),
-                  ),
-                  IconButton(
-                    tooltip: displayMode == BoxDisplayMode.grid
-                        ? '列表视图'
-                        : '网格视图',
-                    onPressed: onToggleDisplayMode,
-                    icon: Icon(
-                      displayMode == BoxDisplayMode.grid
-                          ? Icons.view_list
-                          : Icons.grid_view,
+                    IconButton(
+                      tooltip: displayMode == BoxDisplayMode.grid
+                          ? '列表视图'
+                          : '网格视图',
+                      onPressed: onToggleDisplayMode,
+                      icon: Icon(
+                        displayMode == BoxDisplayMode.grid
+                            ? Icons.view_list
+                            : Icons.grid_view,
+                      ),
                     ),
-                  ),
-                  IconButton(
-                    tooltip: '刷新',
-                    onPressed: onRefresh,
-                    icon: const Icon(Icons.refresh),
-                  ),
-                  IconButton(
-                    tooltip: '菜单',
-                    onPressed: onMenu,
-                    icon: const Icon(Icons.menu),
-                  ),
-                  IconButton(
-                    tooltip: '关闭',
-                    onPressed: onClose,
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
+                    IconButton(
+                      tooltip: '刷新',
+                      onPressed: onRefresh,
+                      icon: const Icon(Icons.refresh),
+                    ),
+                    IconButton(
+                      tooltip: '菜单',
+                      onPressed: onMenu,
+                      icon: const Icon(Icons.more_vert),
+                    ),
+                    IconButton(
+                      tooltip: '关闭',
+                      onPressed: onClose,
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(width: 6),
