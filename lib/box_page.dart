@@ -12,6 +12,7 @@ import 'widgets/folder_icon.dart';
 import 'widgets/window_resize_area.dart';
 import 'shared_prefs_helper.dart';
 import 'box_prefs.dart';
+import 'widgets/file_icon.dart';
 
 class BoxPage extends StatefulWidget {
   final BoxType type;
@@ -1060,7 +1061,8 @@ class _BoxListItem extends StatelessWidget {
   }
 
   String _formatSize(int bytes) {
-    if (bytes <= 0) return '';
+    if (bytes < 0) return '';
+    if (bytes == 0) return '0 KB';
     const suffixes = ['B', 'KB', 'MB', 'GB', 'TB'];
     var i = 0;
     double size = bytes.toDouble();
@@ -1068,6 +1070,8 @@ class _BoxListItem extends StatelessWidget {
       size /= 1024;
       i++;
     }
+    // For bytes, no decimal
+    if (i == 0) return '${size.round()} ${suffixes[i]}';
     return '${size.toStringAsFixed(size < 10 ? 1 : 0)} ${suffixes[i]}';
   }
 
@@ -1099,12 +1103,12 @@ class _BoxListItem extends StatelessWidget {
     if (entity is Directory) {
       iconWidget = FolderIcon(directory: entity as Directory, size: 24);
     } else {
-      iconWidget = Icon(
-        type == BoxType.folders ? Icons.folder : Icons.insert_drive_file,
+      iconWidget = FileIcon(
+        path: entity.path,
         size: 24,
-        color: type == BoxType.folders
-            ? Colors.amber
-            : theme.colorScheme.primary,
+        fallbackIcon: type == BoxType.folders
+            ? Icons.folder
+            : Icons.insert_drive_file,
       );
     }
 
@@ -1220,11 +1224,7 @@ class _BoxTile extends StatelessWidget {
     if (entity is Directory) {
       content = FolderIcon(directory: entity as Directory, size: 36);
     } else {
-      content = Icon(
-        icon,
-        size: 36,
-        color: icon == Icons.folder ? Colors.amber : theme.colorScheme.primary,
-      );
+      content = FileIcon(path: entity.path, size: 36, fallbackIcon: icon);
     }
 
     return Material(
