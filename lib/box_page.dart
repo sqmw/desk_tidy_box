@@ -376,31 +376,32 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
       final result = await showMenu<String>(
         context: context,
         position: RelativeRect.fromLTRB(origin.dx + 12, origin.dy + 44, 0, 0),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        elevation: 8,
         items: [
           PopupMenuItem(
             value: 'refresh',
-            child: ListTile(leading: Icon(Icons.refresh), title: Text('刷新')),
+            padding: EdgeInsets.zero,
+            child: _buildMenuItem(Icons.refresh, '刷新'),
           ),
           PopupMenuItem(
             value: 'open_desktop',
-            child: ListTile(
-              leading: Icon(Icons.folder_open),
-              title: Text('打开桌面文件夹'),
-            ),
+            padding: EdgeInsets.zero,
+            child: _buildMenuItem(Icons.folder_open, '打开桌面文件夹'),
           ),
           PopupMenuItem(
             value: 'toggle_pin',
-            child: ListTile(
-              leading: Icon(
-                _isPinned ? Icons.push_pin : Icons.push_pin_outlined,
-              ),
-              title: Text(_isPinned ? '取消固定' : '固定盒子'),
+            padding: EdgeInsets.zero,
+            child: _buildMenuItem(
+              _isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+              _isPinned ? '取消固定' : '固定盒子',
             ),
           ),
-          PopupMenuDivider(),
+          const PopupMenuDivider(height: 1),
           PopupMenuItem(
             value: 'close',
-            child: ListTile(leading: Icon(Icons.close), title: Text('关闭盒子')),
+            padding: EdgeInsets.zero,
+            child: _buildMenuItem(Icons.close, '关闭盒子', isDestructive: true),
           ),
         ],
       );
@@ -424,6 +425,39 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
     } finally {
       if (mounted) setState(() => _isMenuOpen = false);
     }
+  }
+
+  Widget _buildMenuItem(
+    IconData icon,
+    String title, {
+    bool isDestructive = false,
+  }) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 18,
+            color: isDestructive
+                ? theme.colorScheme.error
+                : theme.colorScheme.onSurface.withValues(alpha: 0.8),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            title,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: isDestructive
+                  ? theme.colorScheme.error
+                  : theme.colorScheme.onSurface.withValues(alpha: 0.9),
+              fontFamilyFallback: const ['Microsoft YaHei'],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override

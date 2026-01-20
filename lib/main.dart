@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:screen_retriever/screen_retriever.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -201,7 +202,21 @@ class _BoxAppState extends State<BoxApp> with WindowListener {
         brightness: Brightness.dark,
         useMaterial3: true,
         fontFamily: 'Segoe UI',
+        fontFamilyFallback: const [
+          'Microsoft YaHei',
+          'PingFang SC',
+          'Source Han Sans CN',
+        ],
+        // Set standard visual density
+        visualDensity: VisualDensity.compact,
       ),
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+      locale: const Locale('zh', 'CN'),
       home: BoxPage(
         type: widget.args.type,
         desktopPath: widget.args.desktopPath,

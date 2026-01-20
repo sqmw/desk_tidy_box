@@ -30,6 +30,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
 
   window_manager: ^0.4.0
   screen_retriever: ^0.1.9

@@ -7,7 +7,6 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
-import 'package:path/path.dart' as path;
 import 'package:image/image.dart' as img; // Re-enabled
 import 'package:win32/win32.dart';
 
