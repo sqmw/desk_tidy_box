@@ -538,23 +538,8 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
                               onMenu: _showMenu,
                               onRefresh: _refresh,
                               onClose: () => windowManager.close(),
-                              onDragStart: () async {
+                              onDragStart: () {
                                 setState(() => _isDragging = true);
-                                // If dragging a collapsed box, expand it immediately
-                                if (_isCollapsed) {
-                                  final targetHeight =
-                                      _expandedSize?.height ?? 300;
-                                  final curSize = await windowManager.getSize();
-                                  await windowManager.setSize(
-                                    Size(curSize.width, targetHeight),
-                                  );
-                                  if (mounted) {
-                                    setState(() {
-                                      _isCollapsed = false;
-                                      _showContent = true;
-                                    });
-                                  }
-                                }
                                 _loadOtherBounds();
                               },
                               onDragEnd: () {
