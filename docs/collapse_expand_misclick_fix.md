@@ -6,7 +6,7 @@
 
 ## 根本原因
 
-1. `_BoxHeader` 中的 `GestureDetector` 使用 `HitTestBehavior.translucent`
+1. `BoxHeader` 中的 `GestureDetector` 使用 `HitTestBehavior.translucent`
 2. 点击头部触发 `onPanStart`（即使没有真正拖动）
 3. `onPanStart` 调用 `onDragStart?.call()`
 4. `onDragStart` 回调包含自动展开逻辑：
@@ -34,7 +34,8 @@ onDragStart: () {
 
 ## 修改文件
 
-- `lib/box_page.dart` - 第541行附近，移除 `onDragStart` 回调中的自动展开代码
+- `lib/box_page.dart` - `BoxHeader(onDragStart: ...)` 回调中移除自动展开逻辑
+- `lib/widgets/box_header.dart` - 头部拖拽的手势入口（用于理解误触根因）
 
 ## 修复日期
 

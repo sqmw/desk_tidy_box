@@ -109,6 +109,7 @@ typedef _SHCreateItemFromParsingNameDart =
       Pointer<GUID> riid,
       Pointer<Pointer> ppv,
     );
+// ignore: non_constant_identifier_names
 final _SHCreateItemFromParsingName = _shell32
     .lookupFunction<
       _SHCreateItemFromParsingNameNative,
@@ -193,9 +194,7 @@ Uint8List? _extractIconIsolate(String filePath, int size) {
     }
 
     // 3. Final fallback: Standard SHGetFileInfo icon (reliable but smaller)
-    if (result == null) {
-      result = _extractStandardIcon(filePath, size);
-    }
+    result ??= _extractStandardIcon(filePath, size);
 
     return result;
   } finally {

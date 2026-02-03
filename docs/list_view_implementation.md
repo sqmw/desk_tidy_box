@@ -17,7 +17,7 @@ All columns now use explicit widths managed by the parent widget state.
 
 ## Implementation Details
 -   `LayoutBuilder` calculates the available space for the `Name` column after subtracting fixed columns, handles, and padding.
--   `_BoxList` manages column state: `_nameWidth`, `_dateWidth`, `_typeWidth`, `_sizeWidth`.
+-   `BoxList` manages column state: `_nameWidth`, `_dateWidth`, `_typeWidth`, `_sizeWidth`.
 -   Headers and ListItems share identical spacing logic to ensure vertical alignment.
 
 ## Future Improvements

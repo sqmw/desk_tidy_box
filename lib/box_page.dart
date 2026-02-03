@@ -1,18 +1,21 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:path/path.dart' as path;
 import 'package:window_manager/window_manager.dart';
 
-import 'main.dart';
 import 'glass_container.dart';
-import 'widgets/folder_icon.dart';
 import 'widgets/window_resize_area.dart';
 import 'shared_prefs_helper.dart';
 import 'box_prefs.dart';
-import 'widgets/file_icon.dart';
+import 'services/window_height_animator.dart';
+import 'models/box_type.dart';
+import 'widgets/box_header.dart';
+import 'widgets/box_grid.dart';
+import 'widgets/box_list.dart';
+import 'widgets/box_content_transition.dart';
 
 class BoxPage extends StatefulWidget {
   final BoxType type;
@@ -24,12 +27,16 @@ class BoxPage extends StatefulWidget {
   State<BoxPage> createState() => _BoxPageState();
 }
 
-class _BoxPageState extends State<BoxPage> with WindowListener {
+
+class _BoxPageState extends State<BoxPage>
+    with WindowListener, TickerProviderStateMixin {
   bool _hovering = false;
   bool _loading = true;
   String? _error;
   List<FileSystemEntity> _entries = const [];
   String _desktopPath = '';
+  late final WindowHeightAnimator _heightAnimator;
+  int _hoverTransitionEpoch = 0;
 
   // Alignment state
   BoxBounds? _otherBounds;
@@ -50,10 +57,12 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
   // Interaction state guards
   bool _isMenuOpen = false;
   bool _isDragging = false;
+  static const double _headerHeight = 44;
 
   @override
   void initState() {
     super.initState();
+    _heightAnimator = WindowHeightAnimator(windowManager, vsync: this);
     windowManager.addListener(this);
     // Mark this box as running
     BoxPrefs().saveRunning(widget.type.name, true);
@@ -65,6 +74,8 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
   void dispose() {
     // Mark this box as not running
     BoxPrefs().saveRunning(widget.type.name, false);
+    _heightAnimator.cancel();
+    _heightAnimator.dispose();
     windowManager.removeListener(this);
     super.dispose();
   }
@@ -327,6 +338,7 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
 
   Future<void> _toggleCollapsed() async {
     final newCollapsed = !_isCollapsed;
+    _heightAnimator.cancel();
 
     if (newCollapsed) {
       // Collapsing
@@ -335,33 +347,31 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
 
       setState(() {
         _isCollapsed = true;
-        _showContent = false;
+        _showContent = _hovering;
       });
 
-      // Visual shrink animation (handled by AnimatedContainer in build)
-      await Future.delayed(const Duration(milliseconds: 150));
-
-      // Physically shrink window only AFTER visual animation
-      if (mounted && _isCollapsed && !_hovering) {
-        await windowManager.setSize(Size(currentSize.width, 50));
+      if (!mounted || !_isCollapsed || _hovering) {
+        await BoxPrefs().saveCollapsed(widget.type.name, newCollapsed);
+        return;
       }
+
+      await Future.delayed(const Duration(milliseconds: 240));
+      if (!mounted || _hovering) {
+        await BoxPrefs().saveCollapsed(widget.type.name, newCollapsed);
+        return;
+      }
+      await _heightAnimator.jumpTo(50);
     } else {
       // Expanding
       final targetH = _expandedSize?.height ?? 300;
-      final curSize = await windowManager.getSize();
-
-      // 1. Physically expand window INSTANTLY (User said this was good)
-      await windowManager.setSize(Size(curSize.width, targetH));
-
       setState(() {
         _isCollapsed = false;
+        _showContent = false;
       });
 
-      // 2. Wait for layout, then show content
-      await Future.delayed(const Duration(milliseconds: 50));
-      if (mounted) {
-        setState(() => _showContent = true);
-      }
+      await _heightAnimator.jumpTo(targetH);
+      await Future.delayed(const Duration(milliseconds: 16));
+      if (mounted) setState(() => _showContent = true);
     }
 
     await BoxPrefs().saveCollapsed(widget.type.name, newCollapsed);
@@ -470,44 +480,41 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
       backgroundColor: Colors.transparent,
       body: MouseRegion(
         onEnter: (_) async {
+          final epoch = ++_hoverTransitionEpoch;
+          _heightAnimator.cancel();
           if (mounted) setState(() => _hovering = true);
-          // Auto-expand FIRST if collapsed
-          if (_isCollapsed) {
-            final targetHeight = _expandedSize?.height ?? 300;
-            final curSize = await windowManager.getSize();
-            // Instant resize expansion as it was "good"
-            await windowManager.setSize(Size(curSize.width, targetHeight));
 
-            await Future.delayed(const Duration(milliseconds: 50));
-            if (mounted && _hovering) {
-              setState(() => _showContent = true);
-            }
-          }
+          // Auto-expand if collapsed (smooth).
+          if (!_isCollapsed) return;
+
+          final targetHeight = _expandedSize?.height ?? 300;
+          await _heightAnimator.jumpTo(targetHeight);
+          if (!mounted || epoch != _hoverTransitionEpoch) return;
+          await Future.delayed(const Duration(milliseconds: 16));
+          if (!mounted || epoch != _hoverTransitionEpoch) return;
+          if (mounted) setState(() => _showContent = true);
         },
         onExit: (_) async {
+          final epoch = ++_hoverTransitionEpoch;
+          _heightAnimator.cancel();
           if (mounted) setState(() => _hovering = false);
 
           // Auto-collapse when leaving if in collapsed mode
-          if (_isCollapsed) {
-            // Grace period
-            await Future.delayed(const Duration(milliseconds: 200));
+          if (!_isCollapsed) return;
 
-            // Don't collapse if mouse returned OR menu is open OR we are dragging
-            if (_hovering || _isMenuOpen || _isDragging) return;
+          // Grace period
+          await Future.delayed(const Duration(milliseconds: 160));
+          if (!mounted || epoch != _hoverTransitionEpoch) return;
 
-            if (mounted) setState(() => _showContent = false);
+          // Don't collapse if mouse returned OR menu is open OR we are dragging
+          if (_hovering || _isMenuOpen || _isDragging) return;
 
-            // Give visual hide and container shrink animation time (150ms)
-            await Future.delayed(const Duration(milliseconds: 150));
+          if (mounted) setState(() => _showContent = false);
 
-            // Re-check before physical resize
-            if (_hovering || _isMenuOpen || _isDragging) return;
-
-            if (mounted) {
-              final curSize = await windowManager.getSize();
-              await windowManager.setSize(Size(curSize.width, 50));
-            }
-          }
+          await Future.delayed(const Duration(milliseconds: 240));
+          if (!mounted || epoch != _hoverTransitionEpoch) return;
+          if (_hovering || _isMenuOpen || _isDragging) return;
+          await _heightAnimator.jumpTo(50);
         },
         child: WindowResizeArea(
           child: SafeArea(
@@ -516,124 +523,94 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
               children: [
                 RepaintBoundary(
                   child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    curve: Curves.fastOutSlowIn,
-                    // Use expanded height or default when showContent is true
-                    height: _showContent ? null : 50.0,
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(12),
                       child: GlassContainer(
                         opacity: prefs.transparency,
                         blurSigma: 18 * prefs.frostStrength,
-                        child: Column(
-                          children: [
-                            _BoxHeader(
-                              title: title,
-                              hovering: _hovering,
-                              isPinned: _isPinned,
-                              isCollapsed: _isCollapsed,
-                              displayMode: _displayMode,
-                              onToggleDisplayMode: _toggleDisplayMode,
-                              onToggleCollapsed: _toggleCollapsed,
-                              onMenu: _showMenu,
-                              onRefresh: _refresh,
-                              onClose: () => windowManager.close(),
-                              onDragStart: () {
-                                setState(() => _isDragging = true);
-                                _loadOtherBounds();
-                              },
-                              onDragEnd: () {
-                                if (mounted)
-                                  setState(() => _isDragging = false);
-                              },
-                            ),
-                            // We keep the widget in the tree to allow AnimatedAlign to work.
-                            // It only shows if _isCollapsed is false OR _showContent is true.
-                            if (!_isCollapsed || _showContent || _hovering)
-                              Expanded(
-                                child: ClipRect(
-                                  child: AnimatedAlign(
-                                    duration: const Duration(milliseconds: 200),
-                                    curve: Curves.easeOutCubic,
-                                    alignment: Alignment.topCenter,
-                                    heightFactor: _showContent ? 1.0 : 0.0,
-                                    child:
-                                        Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.stretch,
-                                              children: [
-                                                const Divider(height: 1),
-                                                Expanded(
-                                                  child: _loading
-                                                      ? const Center(
-                                                          child:
-                                                              CircularProgressIndicator(),
-                                                        )
-                                                      : _error != null
-                                                      ? Center(
-                                                          child: Text(
-                                                            '加载失败：$_error',
-                                                            style: theme
-                                                                .textTheme
-                                                                .bodyMedium,
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final contentMaxHeight = math.max(
+                              0.0,
+                              constraints.maxHeight - _headerHeight,
+                            );
+                            return Column(
+                              children: [
+                                BoxHeader(
+                                  title: title,
+                                  hovering: _hovering,
+                                  isPinned: _isPinned,
+                                  isCollapsed: _isCollapsed,
+                                  displayMode: _displayMode,
+                                  onToggleDisplayMode: _toggleDisplayMode,
+                                  onToggleCollapsed: _toggleCollapsed,
+                                  onMenu: _showMenu,
+                                  onRefresh: _refresh,
+                                  onClose: () => windowManager.close(),
+                                  onDragStart: () {
+                                    setState(() => _isDragging = true);
+                                    _loadOtherBounds();
+                                  },
+                                  onDragEnd: () {
+                                    if (mounted) {
+                                      setState(() => _isDragging = false);
+                                    }
+                                  },
+                                ),
+                                BoxContentTransition(
+                                  visible: !_isCollapsed || _showContent,
+                                  maxHeight: contentMaxHeight,
+                                  duration: const Duration(milliseconds: 240),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                                    children: [
+                                      const Divider(height: 1),
+                                      Expanded(
+                                        child: _loading
+                                            ? const Center(
+                                                child: CircularProgressIndicator(),
+                                              )
+                                            : _error != null
+                                                ? Center(
+                                                    child: Text(
+                                                      '加载失败：$_error',
+                                                      style: theme.textTheme.bodyMedium,
+                                                    ),
+                                                  )
+                                                : _entries.isEmpty
+                                                    ? Center(
+                                                        child: Text(
+                                                          '暂无内容',
+                                                          style: theme.textTheme.bodyMedium
+                                                              ?.copyWith(
+                                                            color: theme
+                                                                .colorScheme
+                                                                .onSurface
+                                                                .withValues(alpha: 0.7),
                                                           ),
-                                                        )
-                                                      : _entries.isEmpty
-                                                      ? Center(
-                                                          child: Text(
-                                                            '暂无内容',
-                                                            style: theme
-                                                                .textTheme
-                                                                .bodyMedium
-                                                                ?.copyWith(
-                                                                  color: theme
-                                                                      .colorScheme
-                                                                      .onSurface
-                                                                      .withValues(
-                                                                        alpha:
-                                                                            0.7,
-                                                                      ),
-                                                                ),
-                                                          ),
-                                                        )
-                                                      : _displayMode ==
-                                                            BoxDisplayMode.grid
-                                                      ? _BoxGrid(
-                                                          entries: _entries,
-                                                          type: widget.type,
-                                                          onOpen: _openEntity,
-                                                        )
-                                                      : _BoxList(
-                                                          entries: _entries,
-                                                          type: widget.type,
-                                                          onOpen: _openEntity,
                                                         ),
-                                                ),
-                                              ],
-                                            )
-                                            .animate(
-                                              target: _showContent ? 1 : 0,
-                                            )
-                                            .fadeIn(
-                                              duration: 300.ms,
-                                              curve: Curves.easeIn,
-                                            )
-                                            .slideY(
-                                              begin: -0.05,
-                                              end: 0,
-                                              duration: 400.ms,
-                                              curve: Curves.easeOutCubic,
-                                            )
-                                            .scaleXY(
-                                              begin: 0.98,
-                                              end: 1.0,
-                                              duration: 400.ms,
-                                              curve: Curves.easeOutCubic,
-                                            ),
+                                                      )
+                                                    : _displayMode ==
+                                                            BoxDisplayMode.grid
+                                                        ? BoxGrid(
+                                                            entries: _entries,
+                                                            type: widget.type,
+                                                            onOpen: _openEntity,
+                                                          )
+                                                        : BoxList(
+                                                            entries: _entries,
+                                                            type: widget.type,
+                                                            onOpen: _openEntity,
+                                                          ),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                              ),
-                          ],
+                              ],
+                            );
+                          },
                         ),
                       ),
                     ),
@@ -693,593 +670,3 @@ class _BoxPageState extends State<BoxPage> with WindowListener {
   }
 }
 
-class _BoxHeader extends StatelessWidget {
-  final String title;
-  final bool hovering;
-  final bool isPinned;
-  final bool isCollapsed;
-  final BoxDisplayMode displayMode;
-  final VoidCallback onToggleDisplayMode;
-  final VoidCallback onToggleCollapsed;
-  final VoidCallback onMenu;
-  final VoidCallback onRefresh;
-  final VoidCallback onClose;
-  final VoidCallback? onDragStart;
-
-  const _BoxHeader({
-    required this.title,
-    required this.hovering,
-    required this.isPinned,
-    required this.isCollapsed,
-    required this.displayMode,
-    required this.onToggleDisplayMode,
-    required this.onToggleCollapsed,
-    required this.onMenu,
-    required this.onRefresh,
-    required this.onClose,
-    this.onDragStart,
-    this.onDragEnd,
-  });
-
-  final VoidCallback? onDragEnd;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return SizedBox(
-      height: 44,
-      child: GestureDetector(
-        // To allow dragging the window by the header
-        behavior: HitTestBehavior.translucent,
-        onPanStart: (_) {
-          if (isPinned) return; // Don't allow dragging if pinned
-          onDragStart?.call();
-          windowManager.startDragging();
-        },
-        onPanEnd: (_) => onDragEnd?.call(),
-        onPanCancel: () => onDragEnd?.call(),
-        child: Row(
-          children: [
-            const SizedBox(width: 10),
-            Icon(
-              title == '文件夹' ? Icons.folder : Icons.description,
-              size: 18,
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.85),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                title,
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.9),
-                ),
-              ),
-            ),
-            AnimatedOpacity(
-              duration: const Duration(milliseconds: 140),
-              opacity: hovering ? 1 : 0,
-              child: GestureDetector(
-                // Absorb pan events to prevent window dragging when clicking buttons
-                onPanStart: (_) {}, // Empty handler absorbs the event
-                onPanUpdate: (_) {},
-                onPanEnd: (_) {},
-                behavior: HitTestBehavior.opaque,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      tooltip: isCollapsed ? '展开盒子' : '收起盒子',
-                      onPressed: onToggleCollapsed,
-                      icon: Icon(
-                        isCollapsed ? Icons.expand_less : Icons.expand_more,
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: displayMode == BoxDisplayMode.grid
-                          ? '列表视图'
-                          : '网格视图',
-                      onPressed: onToggleDisplayMode,
-                      icon: Icon(
-                        displayMode == BoxDisplayMode.grid
-                            ? Icons.view_list
-                            : Icons.grid_view,
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: '刷新',
-                      onPressed: onRefresh,
-                      icon: const Icon(Icons.refresh),
-                    ),
-                    IconButton(
-                      tooltip: '菜单',
-                      onPressed: onMenu,
-                      icon: const Icon(Icons.more_vert),
-                    ),
-                    IconButton(
-                      tooltip: '关闭',
-                      onPressed: onClose,
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(width: 6),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _BoxGrid extends StatelessWidget {
-  final List<FileSystemEntity> entries;
-  final BoxType type;
-  final Future<void> Function(FileSystemEntity entity) onOpen;
-
-  const _BoxGrid({
-    required this.entries,
-    required this.type,
-    required this.onOpen,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return GridView.builder(
-      padding: const EdgeInsets.all(8),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 70,
-        mainAxisSpacing: 4,
-        crossAxisSpacing: 4,
-        childAspectRatio: 0.75,
-      ),
-      itemCount: entries.length,
-      itemBuilder: (context, index) {
-        final entity = entries[index];
-        final name = path.basename(entity.path);
-        return _BoxTile(
-          name: name,
-          entity: entity,
-          onOpen: onOpen,
-          icon: type == BoxType.folders
-              ? Icons.folder
-              : Icons.insert_drive_file,
-          theme: theme,
-        );
-      },
-    );
-  }
-}
-
-class _BoxList extends StatefulWidget {
-  final List<FileSystemEntity> entries;
-  final BoxType type;
-  final Future<void> Function(FileSystemEntity entity) onOpen;
-
-  const _BoxList({
-    super.key,
-    required this.entries,
-    required this.type,
-    required this.onOpen,
-  });
-
-  @override
-  State<_BoxList> createState() => _BoxListState();
-}
-
-class _BoxListState extends State<_BoxList> {
-  // Layout Constants
-  static const double kHandleZoneWidth = 24.0;
-  static const double kSidePadding = 16.0;
-
-  // Initial widths for columns
-  double _nameWidth = 250;
-  double _dateWidth = 140;
-  double _typeWidth = 80;
-  double _sizeWidth = 80;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        // Precise calculation of fixed width elements:
-        // 1. Column widths for Date, Type, Size
-        // 2. 3 Resize handles (each 24px)
-        // 3. Side paddings (16px left, 16px right)
-        final fixedColumnsWidth = _dateWidth + _typeWidth + _sizeWidth;
-        final totalDecorationWidth =
-            (kSidePadding * 2) + (kHandleZoneWidth * 3);
-        final totalWidth =
-            _nameWidth + fixedColumnsWidth + totalDecorationWidth;
-
-        return ScrollConfiguration(
-          behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            physics: const ClampingScrollPhysics(),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: SizedBox(
-                width: totalWidth,
-                child: Column(
-                  children: [
-                    _BoxListHeader(
-                      nameWidth: _nameWidth,
-                      dateWidth: _dateWidth,
-                      typeWidth: _typeWidth,
-                      sizeWidth: _sizeWidth,
-                      handleWidth: kHandleZoneWidth,
-                      sidePadding: kSidePadding,
-                      onResizeName: (dx) => setState(
-                        () =>
-                            _nameWidth = (_nameWidth + dx).clamp(100.0, 500.0),
-                      ),
-                      onResizeDate: (dx) => setState(
-                        () => _dateWidth = (_dateWidth + dx).clamp(80.0, 300.0),
-                      ),
-                      onResizeType: (dx) => setState(
-                        () => _typeWidth = (_typeWidth + dx).clamp(50.0, 200.0),
-                      ),
-                      onResizeSize: (dx) => setState(
-                        () => _sizeWidth = (_sizeWidth + dx).clamp(50.0, 200.0),
-                      ),
-                    ),
-                    Expanded(
-                      child: ListView.builder(
-                        padding: EdgeInsets.zero, // Padding handled by items
-                        itemCount: widget.entries.length,
-                        itemBuilder: (context, index) {
-                          final entity = widget.entries[index];
-                          return _BoxListItem(
-                            entity: entity,
-                            type: widget.type,
-                            onOpen: widget.onOpen,
-                            nameWidth: _nameWidth,
-                            dateWidth: _dateWidth,
-                            typeWidth: _typeWidth,
-                            sizeWidth: _sizeWidth,
-                            handleWidth: kHandleZoneWidth,
-                            sidePadding: kSidePadding,
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _BoxListHeader extends StatelessWidget {
-  final double nameWidth;
-  final double dateWidth;
-  final double typeWidth;
-  final double sizeWidth;
-  final double handleWidth;
-  final double sidePadding;
-  final ValueChanged<double> onResizeName;
-  final ValueChanged<double> onResizeDate;
-  final ValueChanged<double> onResizeType;
-  final ValueChanged<double> onResizeSize;
-
-  const _BoxListHeader({
-    required this.nameWidth,
-    required this.dateWidth,
-    required this.typeWidth,
-    required this.sizeWidth,
-    required this.handleWidth,
-    required this.sidePadding,
-    required this.onResizeName,
-    required this.onResizeDate,
-    required this.onResizeType,
-    required this.onResizeSize,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final style = theme.textTheme.bodySmall?.copyWith(
-      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-      fontWeight: FontWeight.w500,
-    );
-
-    return Padding(
-      padding: EdgeInsets.fromLTRB(sidePadding, 12, sidePadding, 12),
-      child: Row(
-        children: [
-          SizedBox(
-            width: nameWidth,
-            child: Text('名称', style: style),
-          ),
-          _ResizeHandle(width: handleWidth, onDrag: onResizeName),
-          SizedBox(
-            width: dateWidth,
-            child: Text('修改日期', style: style),
-          ),
-          _ResizeHandle(width: handleWidth, onDrag: onResizeDate),
-          SizedBox(
-            width: typeWidth,
-            child: Text('类型', style: style),
-          ),
-          _ResizeHandle(width: handleWidth, onDrag: onResizeType),
-          SizedBox(
-            width: sizeWidth,
-            child: Text('大小', style: style),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ResizeHandle extends StatelessWidget {
-  final double width;
-  final Function(double dx) onDrag;
-
-  const _ResizeHandle({required this.width, required this.onDrag});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return MouseRegion(
-      cursor: SystemMouseCursors.resizeColumn,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onHorizontalDragUpdate: (details) {
-          onDrag(details.delta.dx);
-        },
-        child: SizedBox(
-          width: width,
-          child: Center(
-            child: Container(
-              width: 1,
-              height: 16,
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _BoxListItem extends StatelessWidget {
-  final FileSystemEntity entity;
-  final BoxType type;
-  final Future<void> Function(FileSystemEntity entity) onOpen;
-
-  final double nameWidth;
-  final double dateWidth;
-  final double typeWidth;
-  final double sizeWidth;
-  final double handleWidth;
-  final double sidePadding;
-
-  const _BoxListItem({
-    required this.entity,
-    required this.type,
-    required this.onOpen,
-    required this.nameWidth,
-    required this.dateWidth,
-    required this.typeWidth,
-    required this.sizeWidth,
-    required this.handleWidth,
-    required this.sidePadding,
-  });
-
-  String _formatDate(DateTime date) {
-    String twoDigits(int n) => n.toString().padLeft(2, '0');
-    return '${date.year}/${twoDigits(date.month)}/${twoDigits(date.day)} ${twoDigits(date.hour)}:${twoDigits(date.minute)}';
-  }
-
-  String _formatSize(int bytes) {
-    if (bytes < 0) return '';
-    if (bytes == 0) return '0 KB';
-    const suffixes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    var i = 0;
-    double size = bytes.toDouble();
-    while (size >= 1024 && i < suffixes.length - 1) {
-      size /= 1024;
-      i++;
-    }
-    // For bytes, no decimal
-    if (i == 0) return '${size.round()} ${suffixes[i]}';
-    return '${size.toStringAsFixed(size < 10 ? 1 : 0)} ${suffixes[i]}';
-  }
-
-  String _getType(FileSystemEntity entity) {
-    if (entity is Directory) return '文件夹';
-    final ext = path.extension(entity.path).toLowerCase();
-    if (ext.isEmpty) return '文件';
-    return ext.substring(1).toUpperCase() + ' 文件';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final name = path.basename(entity.path);
-
-    // Get file stats
-    FileStat? stat;
-    try {
-      stat = entity.statSync();
-    } catch (_) {}
-
-    final dateStr = stat != null ? _formatDate(stat.modified) : '';
-    final sizeStr = (entity is File && stat != null)
-        ? _formatSize(stat.size)
-        : '';
-    final typeStr = _getType(entity);
-
-    Widget iconWidget;
-    if (entity is Directory) {
-      iconWidget = FolderIcon(directory: entity as Directory, size: 24);
-    } else {
-      iconWidget = FileIcon(
-        path: entity.path,
-        size: 24,
-        fallbackIcon: type == BoxType.folders
-            ? Icons.folder
-            : Icons.insert_drive_file,
-      );
-    }
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onDoubleTap: () => onOpen(entity),
-        hoverColor: theme.colorScheme.surfaceContainerHighest.withValues(
-          alpha: 0.2,
-        ),
-        borderRadius: BorderRadius.circular(6),
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(sidePadding, 8, sidePadding, 8),
-          child: Row(
-            children: [
-              // Name Column - Explicit width
-              SizedBox(
-                width: nameWidth,
-                child: Row(
-                  children: [
-                    iconWidget,
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSurface.withValues(
-                            alpha: 0.9,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              // Match Header's ResizeHandle width
-              SizedBox(width: handleWidth),
-
-              // Date Column
-              SizedBox(
-                width: dateWidth,
-                child: Text(
-                  dateStr,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              SizedBox(width: handleWidth),
-
-              // Type Column
-              SizedBox(
-                width: typeWidth,
-                child: Text(
-                  typeStr,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              SizedBox(width: handleWidth),
-
-              // Size Column
-              SizedBox(
-                width: sizeWidth,
-                child: Text(
-                  sizeStr,
-                  textAlign: TextAlign.left,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _BoxTile extends StatelessWidget {
-  final String name;
-  final FileSystemEntity entity;
-  final Future<void> Function(FileSystemEntity entity) onOpen;
-  final IconData icon;
-  final ThemeData theme;
-
-  const _BoxTile({
-    required this.name,
-    required this.entity,
-    required this.onOpen,
-    required this.icon,
-    required this.theme,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final hover = theme.colorScheme.surfaceContainerHighest.withValues(
-      alpha: 0.25,
-    );
-
-    // Determine content widget
-    Widget content;
-    if (entity is Directory) {
-      content = FolderIcon(directory: entity as Directory, size: 36);
-    } else {
-      content = FileIcon(path: entity.path, size: 36, fallbackIcon: icon);
-    }
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(8),
-        hoverColor: hover,
-        onDoubleTap: () => onOpen(entity),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              content,
-              const SizedBox(height: 4),
-              Flexible(
-                child: Tooltip(
-                  message: name,
-                  child: Text(
-                    name,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.onSurface.withValues(
-                        alpha: 0.85,
-                      ),
-                      height: 1.1,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}

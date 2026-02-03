@@ -5,7 +5,6 @@ class SharedPrefsHelper {
   static const _kTransparency = 'ui.transparency';
   static const _kFrostStrength = 'ui.frostStrength';
   static const _kThemeMode = 'ui.themeMode';
-  static const _kBeautifyStyle = 'ui.beautify.style';
   static const _kIconSize = 'ui.iconSize';
 
   // Singleton

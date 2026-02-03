@@ -28,3 +28,13 @@
 //     expect(find.text('1'), findsOneWidget);
 //   });
 // }
+
+// Keep an empty test entrypoint so `flutter test` can run without failing the
+// suite loader when this template file is commented out.
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  test('smoke', () {
+    expect(1, 1);
+  });
+}

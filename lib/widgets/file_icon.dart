@@ -1,6 +1,5 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import '../utils/native_helper.dart';
 
 class FileIcon extends StatefulWidget {
@@ -47,7 +46,7 @@ class _FileIconState extends State<FileIcon> {
         setState(() => _bytes = bytes);
       }
     } catch (e) {
-      print('Error loading icon for ${widget.path}: $e');
+      debugPrint('Error loading icon for ${widget.path}: $e');
     }
   }
 

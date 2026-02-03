@@ -9,9 +9,7 @@ import 'package:window_manager/window_manager.dart';
 import 'box_page.dart';
 import 'box_prefs.dart';
 import 'shared_prefs_helper.dart';
-
-/// Box types
-enum BoxType { folders, files }
+import 'models/box_type.dart';
 
 /// Command-line arguments for the box
 class BoxArgs {
